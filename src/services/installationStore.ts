@@ -1,9 +1,16 @@
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypto';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 
 const ALGORITHM = 'aes-256-gcm';
-const STORE_PATH = join(process.cwd(), '.installations.enc');
+
+function getDataDir(): string {
+  const dir = process.env.DATA_DIR ?? process.cwd();
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+const STORE_PATH = join(getDataDir(), '.installations.enc');
 
 export interface InstallationRecord {
   workspaceId: string;

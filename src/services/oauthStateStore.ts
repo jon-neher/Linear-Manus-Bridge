@@ -1,8 +1,15 @@
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 
 const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-const STORE_PATH = join(process.cwd(), '.oauth-states.json');
+
+function getDataDir(): string {
+  const dir = process.env.DATA_DIR ?? process.cwd();
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+const STORE_PATH = join(getDataDir(), '.oauth-states.json');
 
 // Map of state token -> timestamp (ms)
 type StateStore = Record<string, number>;
