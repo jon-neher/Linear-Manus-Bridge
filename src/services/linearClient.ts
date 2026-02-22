@@ -39,8 +39,10 @@ export async function postComment(
   issueId: string,
   body: string,
   accessToken: string,
-): Promise<void> {
-  await linearGql<unknown>(
+): Promise<string | null> {
+  const data = await linearGql<{
+    commentCreate: { comment?: { id: string } };
+  }>(
     `mutation CommentCreate($issueId: String!, $body: String!) {
       commentCreate(input: { issueId: $issueId, body: $body }) {
         success
@@ -50,6 +52,91 @@ export async function postComment(
     { issueId, body },
     accessToken,
   );
+
+  return data.commentCreate.comment?.id ?? null;
+}
+
+export async function updateComment(
+  commentId: string,
+  body: string,
+  accessToken: string,
+): Promise<void> {
+  await linearGql<unknown>(
+    `mutation CommentUpdate($commentId: String!, $body: String!) {
+      commentUpdate(id: $commentId, input: { body: $body }) {
+        success
+        comment { id }
+      }
+    }`,
+    { commentId, body },
+    accessToken,
+  );
+}
+
+export interface IssueCommentSummary {
+  id: string;
+  body: string;
+  authorName?: string;
+}
+
+export interface IssueDetails {
+  id: string;
+  title: string;
+  description?: string | null;
+  teamId?: string | null;
+  comments: IssueCommentSummary[];
+}
+
+interface IssueDetailsData {
+  issue: {
+    id: string;
+    title: string;
+    description?: string | null;
+    team?: { id: string } | null;
+    comments: { nodes: Array<{ id: string; body: string; user?: { name?: string } | null }> };
+  } | null;
+}
+
+export async function getIssueDetails(
+  issueId: string,
+  accessToken: string,
+  commentLimit = 5,
+): Promise<IssueDetails> {
+  const data = await linearGql<IssueDetailsData>(
+    `query IssueDetails($issueId: String!, $commentLimit: Int!) {
+      issue(id: $issueId) {
+        id
+        title
+        description
+        team { id }
+        comments(last: $commentLimit) {
+          nodes {
+            id
+            body
+            user { name }
+          }
+        }
+      }
+    }`,
+    { issueId, commentLimit },
+    accessToken,
+  );
+
+  if (!data.issue) {
+    throw new Error(`Issue not found: ${issueId}`);
+  }
+
+  return {
+    id: data.issue.id,
+    title: data.issue.title,
+    description: data.issue.description ?? null,
+    teamId: data.issue.team?.id ?? null,
+    comments: data.issue.comments.nodes.map((node) => ({
+      id: node.id,
+      body: node.body,
+      authorName: node.user?.name,
+    })),
+  };
 }
 
 interface WorkflowState {

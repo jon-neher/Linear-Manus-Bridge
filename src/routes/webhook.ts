@@ -1,20 +1,48 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { Router, Request, Response } from 'express';
-import { consumeTask } from '../services/taskStore';
+import {
+  consumeTask,
+  getTask,
+  storeTask,
+  updateProgressCommentId,
+} from '../services/taskStore';
 import { getValidToken } from '../services/linearAuth';
 import {
   postComment,
+  updateComment,
   findStateIdByName,
   updateIssueState,
 } from '../services/linearClient';
 
 const router = Router();
 
-type ManusStatus = 'completed' | 'failed' | 'cancelled';
+// Extend Express Request to expose the raw body captured by the json middleware verify callback.
+interface RawBodyRequest extends Request {
+  rawBody?: Buffer;
+}
 
-interface ManusWebhookPayload {
+type ManusStopReason = 'finish' | 'ask';
+
+interface ManusTaskAttachment {
+  file_name: string;
+  url: string;
+  size_bytes: number;
+}
+
+interface ManusTaskDetail {
   task_id: string;
-  status: ManusStatus;
+  task_title?: string;
+  task_url?: string;
+  message?: string;
+  attachments?: ManusTaskAttachment[];
+  stop_reason?: ManusStopReason;
+}
+
+interface ManusStoppedPayload {
+  event_type?: 'task_stopped';
+  task_detail?: ManusTaskDetail;
+  task_id?: string;
+  status?: string;
   result?: string;
   error?: string;
   metadata?: {
@@ -24,9 +52,21 @@ interface ManusWebhookPayload {
   };
 }
 
-// Extend Express Request to expose the raw body captured by the json middleware verify callback.
-interface RawBodyRequest extends Request {
-  rawBody?: Buffer;
+interface ManusProgressDetail {
+  task_id: string;
+  progress_type?: string;
+  message?: string;
+}
+
+interface ManusProgressPayload {
+  event_type?: 'task_progress';
+  progress_detail?: ManusProgressDetail;
+  task_id?: string;
+  metadata?: {
+    linear_issue_id?: string;
+    linear_team_id?: string;
+    workspace_id?: string;
+  };
 }
 
 function verifyManusSignature(rawBody: Buffer, signature: string): boolean {
@@ -41,32 +81,156 @@ function verifyManusSignature(rawBody: Buffer, signature: string): boolean {
   return timingSafeEqual(expectedBuf, actualBuf);
 }
 
-function formatManusResult(payload: ManusWebhookPayload): string {
-  const lines: string[] = ['## Manus Task Result\n'];
+function formatProgressComment(detail: ManusProgressDetail, taskId: string): string {
+  const message = detail.message?.trim() || 'Progress update received from Manus.';
+  const lines: string[] = ['## Manus Progress', ''];
 
-  if (payload.status === 'completed') {
-    lines.push('**Status:** Completed\n');
-    if (payload.result) {
-      lines.push(payload.result);
-    }
-  } else if (payload.status === 'failed') {
-    lines.push('**Status:** Failed\n');
-    if (payload.error) {
-      lines.push(`**Error:** ${payload.error}`);
-    }
-  } else {
-    lines.push(`**Status:** ${payload.status}\n`);
+  if (detail.progress_type) {
+    lines.push(`**Type:** ${detail.progress_type}`, '');
   }
 
-  lines.push('\n---');
-  lines.push(`*Task ID: \`${payload.task_id}\` — Processed by Linear-Manus Bridge*`);
+  lines.push(message, '');
+  lines.push(`_Last update: ${new Date().toISOString()}_`, '');
+  lines.push('---');
+  lines.push(`*Task ID: \`${taskId}\` — Progress update*`);
 
   return lines.join('\n');
 }
 
+function formatStoppedComment(detail: ManusTaskDetail, statusLabel: string): string {
+  const lines: string[] = ['## Manus Task Result', ''];
+  lines.push(`**Status:** ${statusLabel}`, '');
+
+  if (detail.message) {
+    lines.push(detail.message, '');
+  }
+
+  if (detail.attachments?.length) {
+    lines.push('**Attachments:**');
+    for (const attachment of detail.attachments) {
+      lines.push(
+        `- [${attachment.file_name}](${attachment.url}) (${attachment.size_bytes} bytes)`,
+      );
+    }
+    lines.push('');
+  }
+
+  if (detail.task_url) {
+    lines.push(`**Task URL:** ${detail.task_url}`, '');
+  }
+
+  lines.push('---');
+  lines.push(`*Task ID: \`${detail.task_id}\` — Processed by Linear-Manus Bridge*`);
+
+  return lines.join('\n');
+}
+
+function formatLegacyResult(
+  taskId: string,
+  status: string,
+  result?: string,
+  error?: string,
+): string {
+  const lines: string[] = ['## Manus Task Result', ''];
+  lines.push(`**Status:** ${status}`, '');
+  if (status === 'completed' && result) {
+    lines.push(result, '');
+  }
+  if (status === 'failed' && error) {
+    lines.push(`**Error:** ${error}`, '');
+  }
+  lines.push('---');
+  lines.push(`*Task ID: \`${taskId}\` — Processed by Linear-Manus Bridge*`);
+  return lines.join('\n');
+}
+
+/**
+ * POST /webhook/manus/progress
+ * Receives Manus progress updates and updates a single Linear comment.
+ */
+router.post('/manus/progress', async (req: RawBodyRequest, res: Response): Promise<void> => {
+  const signature = req.headers['x-manus-signature'] as string | undefined;
+  const rawBody = req.rawBody;
+
+  if (signature) {
+    if (!rawBody) {
+      res.status(500).json({ error: 'Raw body unavailable for signature verification' });
+      return;
+    }
+    if (!verifyManusSignature(rawBody, signature)) {
+      res.status(401).json({ error: 'Invalid webhook signature' });
+      return;
+    }
+  }
+
+  const payload = req.body as ManusProgressPayload;
+  if (payload.event_type && payload.event_type !== 'task_progress') {
+    res.status(400).json({ error: `Unexpected event_type: ${payload.event_type}` });
+    return;
+  }
+
+  const detail = payload.progress_detail;
+  const taskId = detail?.task_id ?? payload.task_id;
+
+  if (!taskId) {
+    res.status(400).json({ error: 'Missing required field: task_id' });
+    return;
+  }
+
+  let stored = getTask(taskId);
+  if (!stored && payload.metadata?.linear_issue_id && payload.metadata.workspace_id) {
+    storeTask(taskId, {
+      linearIssueId: payload.metadata.linear_issue_id,
+      linearTeamId: payload.metadata.linear_team_id,
+      workspaceId: payload.metadata.workspace_id,
+    });
+    stored = getTask(taskId);
+  }
+
+  const issueId = stored?.linearIssueId ?? payload.metadata?.linear_issue_id;
+  const workspaceId = stored?.workspaceId ?? payload.metadata?.workspace_id;
+
+  if (!issueId || !workspaceId) {
+    res.status(422).json({
+      error: 'Cannot resolve Linear issue context from task_id or payload metadata',
+    });
+    return;
+  }
+
+  let accessToken: string;
+  try {
+    accessToken = await getValidToken(workspaceId);
+  } catch (err) {
+    res.status(503).json({ error: (err as Error).message });
+    return;
+  }
+
+  const commentBody = formatProgressComment(
+    detail ?? { task_id: taskId, message: 'Progress update received.' },
+    taskId,
+  );
+
+  try {
+    if (stored?.progressCommentId) {
+      await updateComment(stored.progressCommentId, commentBody, accessToken);
+    } else {
+      const commentId = await postComment(issueId, commentBody, accessToken);
+      if (commentId) {
+        updateProgressCommentId(taskId, commentId);
+      }
+    }
+  } catch (err) {
+    console.error('Failed to update progress comment:', err);
+    res.status(502).json({ error: `Comment failed: ${(err as Error).message}` });
+    return;
+  }
+
+  res.json({ ok: true });
+});
+
 /**
  * POST /webhook/manus
- * Receives task-completion callbacks from Manus, posts the result as a
+ * Receives task completion callbacks from Manus, posts the final result as a
  * Linear comment, and transitions the issue state accordingly.
  */
 router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> => {
@@ -84,15 +248,16 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
     }
   }
 
-  const payload = req.body as ManusWebhookPayload;
+  const payload = req.body as ManusStoppedPayload;
+  const detail = payload.task_detail;
+  const taskId = detail?.task_id ?? payload.task_id;
 
-  if (!payload?.task_id) {
+  if (!taskId) {
     res.status(400).json({ error: 'Missing required field: task_id' });
     return;
   }
 
-  // Resolve Linear context: prefer in-memory task store, fall back to payload metadata.
-  const stored = consumeTask(payload.task_id);
+  const stored = consumeTask(taskId);
   const issueId = stored?.linearIssueId ?? payload.metadata?.linear_issue_id;
   const teamId = stored?.linearTeamId ?? payload.metadata?.linear_team_id;
   const workspaceId = stored?.workspaceId ?? payload.metadata?.workspace_id;
@@ -112,8 +277,30 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
     return;
   }
 
-  // Post result comment on the Linear issue.
-  const commentBody = formatManusResult(payload);
+  const stopReason = detail?.stop_reason;
+  let commentBody: string;
+  let targetStateName: string | null = null;
+
+  if (detail) {
+    if (stopReason === 'ask') {
+      commentBody = formatStoppedComment(detail, 'Needs Input');
+      targetStateName = process.env.LINEAR_NEEDS_INPUT_STATE ?? 'Needs Input';
+    } else {
+      commentBody = formatStoppedComment(detail, 'Completed');
+      targetStateName = process.env.LINEAR_COMPLETION_STATE ?? 'Done';
+    }
+  } else if (payload.status) {
+    commentBody = formatLegacyResult(taskId, payload.status, payload.result, payload.error);
+    if (payload.status === 'completed') {
+      targetStateName = process.env.LINEAR_COMPLETION_STATE ?? 'Done';
+    } else if (payload.status === 'failed') {
+      targetStateName = process.env.LINEAR_FAILURE_STATE ?? 'Cancelled';
+    }
+  } else {
+    res.status(400).json({ error: 'Invalid Manus webhook payload' });
+    return;
+  }
+
   try {
     await postComment(issueId, commentBody, accessToken);
   } catch (err) {
@@ -122,13 +309,7 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
     return;
   }
 
-  // Transition issue state when the team ID is available.
-  if (teamId && payload.status !== 'cancelled') {
-    const targetStateName =
-      payload.status === 'completed'
-        ? (process.env.LINEAR_COMPLETION_STATE ?? 'Done')
-        : (process.env.LINEAR_FAILURE_STATE ?? 'Cancelled');
-
+  if (teamId && targetStateName) {
     try {
       const stateId = await findStateIdByName(teamId, targetStateName, accessToken);
       if (stateId) {
@@ -137,7 +318,6 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
         console.warn(`State "${targetStateName}" not found for team ${teamId}`);
       }
     } catch (err) {
-      // Log but do not fail — the comment was already posted successfully.
       console.error('Failed to update issue state:', err);
     }
   }
