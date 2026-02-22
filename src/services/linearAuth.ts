@@ -1,18 +1,19 @@
+import {
+  getInstallationByWorkspace,
+  getInstallationByAppId,
+  updateInstallationTokens,
+  markInstallationInactive,
+  type InstallationRecord,
+} from './installationStore';
+
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000; // 5-minute buffer before expiry
 const LINEAR_GRAPHQL_URL = 'https://api.linear.app/graphql';
 
-export class ReAuthorizationRequiredError extends Error {
+export class TokenRevokedError extends Error {
   constructor(public readonly workspaceId: string, message?: string) {
-    super(message ?? `Re-authorization required for workspace: ${workspaceId}`);
-    this.name = 'ReAuthorizationRequiredError';
+    super(message ?? `Token revoked for workspace: ${workspaceId}`);
+    this.name = 'TokenRevokedError';
   }
-}
-
-export interface TokenRecord {
-  accessToken: string;
-  refreshToken: string;
-  expiresAt: number;
-  installationId: string;
 }
 
 interface LinearTokenResponse {
@@ -21,46 +22,9 @@ interface LinearTokenResponse {
   expires_in: number;
 }
 
-// In-memory token store keyed by workspaceId.
-// Replace with a persistent database or secrets store in production.
-const tokenStore = new Map<string, TokenRecord>();
-
-// Track workspaces that need re-authorization after refresh token expiry.
-const reAuthRequired = new Set<string>();
-
-/**
- * Persist a token record for a workspace.
- */
-export function saveTokenRecord(workspaceId: string, record: TokenRecord): void {
-  tokenStore.set(workspaceId, { ...record });
-  reAuthRequired.delete(workspaceId);
-}
-
-/**
- * Retrieve the stored token record for a workspace.
- */
-export function getTokenRecord(workspaceId: string): TokenRecord | undefined {
-  return tokenStore.get(workspaceId);
-}
-
-/**
- * Remove a workspace's token record (e.g. when refresh token is invalid).
- */
-export function clearTokenRecord(workspaceId: string): void {
-  tokenStore.delete(workspaceId);
-  reAuthRequired.add(workspaceId);
-}
-
-/**
- * Check if a workspace needs re-authorization.
- */
-export function needsReAuthorization(workspaceId: string): boolean {
-  return reAuthRequired.has(workspaceId);
-}
-
 /**
  * Exchange a refresh token for a new token pair from Linear.
- * Throws ReAuthorizationRequiredError when the refresh token is invalid/expired.
+ * Throws TokenRevokedError when the refresh token is invalid/expired.
  */
 async function refreshAccessToken(
   workspaceId: string,
@@ -84,8 +48,8 @@ async function refreshAccessToken(
 
     // 400/401 from the token endpoint means the refresh token is invalid/expired
     if (response.status === 400 || response.status === 401) {
-      clearTokenRecord(workspaceId);
-      throw new ReAuthorizationRequiredError(
+      markInstallationInactive(workspaceId);
+      throw new TokenRevokedError(
         workspaceId,
         `Refresh token expired or revoked for workspace ${workspaceId}: ${text}`,
       );
@@ -101,17 +65,17 @@ async function refreshAccessToken(
 const inflightRefreshes = new Map<string, Promise<string>>();
 
 /**
- * Return a valid access token for the given workspace, refreshing it if needed.
- * Throws ReAuthorizationRequiredError when re-authorization is necessary.
+ * Return a valid access token for the given workspace, refreshing if needed.
+ * Throws TokenRevokedError if the token has been revoked (401).
  */
 export async function getValidToken(workspaceId: string): Promise<string> {
-  if (reAuthRequired.has(workspaceId)) {
-    throw new ReAuthorizationRequiredError(workspaceId);
+  const record = getInstallationByWorkspace(workspaceId);
+  if (!record) {
+    throw new TokenRevokedError(workspaceId, `No installation record found for workspace: ${workspaceId}`);
   }
 
-  const record = getTokenRecord(workspaceId);
-  if (!record) {
-    throw new ReAuthorizationRequiredError(workspaceId, `No token record found for workspace: ${workspaceId}`);
+  if (!record.active) {
+    throw new TokenRevokedError(workspaceId);
   }
 
   const isExpiringSoon = Date.now() >= record.expiresAt - TOKEN_REFRESH_BUFFER_MS;
@@ -129,17 +93,19 @@ export async function getValidToken(workspaceId: string): Promise<string> {
     try {
       const tokenData = await refreshAccessToken(workspaceId, record.refreshToken);
 
-      const newRecord: TokenRecord = {
-        accessToken: tokenData.access_token,
-        refreshToken: tokenData.refresh_token,
-        expiresAt: Date.now() + tokenData.expires_in * 1000,
-        installationId: record.installationId,
-      };
+      updateInstallationTokens(
+        workspaceId,
+        tokenData.access_token,
+        tokenData.refresh_token,
+        Date.now() + tokenData.expires_in * 1000,
+      );
 
-      // Persist atomically before returning to prevent use of invalidated tokens
-      saveTokenRecord(workspaceId, newRecord);
-
-      return newRecord.accessToken;
+      return tokenData.access_token;
+    } catch (err) {
+      if (err instanceof TokenRevokedError) {
+        markInstallationInactive(workspaceId);
+      }
+      throw err;
     } finally {
       inflightRefreshes.delete(workspaceId);
     }
@@ -147,6 +113,22 @@ export async function getValidToken(workspaceId: string): Promise<string> {
 
   inflightRefreshes.set(workspaceId, refreshPromise);
   return refreshPromise;
+}
+
+/**
+ * Handle a 401 response from the Linear API by marking the installation inactive.
+ * Call this when any Linear API request returns 401.
+ */
+export function handleApiRevocation(workspaceId: string): void {
+  markInstallationInactive(workspaceId);
+  console.warn(`Installation for workspace ${workspaceId} marked inactive due to token revocation`);
+}
+
+/**
+ * Look up an installation by app installation ID (used for webhook routing).
+ */
+export function resolveWorkspaceFromInstallation(appInstallationId: string): InstallationRecord | undefined {
+  return getInstallationByAppId(appInstallationId);
 }
 
 /**
@@ -170,13 +152,13 @@ export async function linearApiRequest<T = unknown>(
 
   // On 401, force a token refresh and retry once
   if (response.status === 401) {
-    const record = getTokenRecord(workspaceId);
+    const record = getInstallationByWorkspace(workspaceId);
     if (!record) {
-      throw new ReAuthorizationRequiredError(workspaceId);
+      throw new TokenRevokedError(workspaceId);
     }
 
-    // Force refresh by temporarily setting expiresAt to 0
-    saveTokenRecord(workspaceId, { ...record, expiresAt: 0 });
+    // Force refresh by updating record with 0 expiry (it's in-memory currently, but updateInstallationTokens persists it)
+    updateInstallationTokens(workspaceId, record.accessToken, record.refreshToken, 0);
     accessToken = await getValidToken(workspaceId);
 
     response = await fetch(LINEAR_GRAPHQL_URL, {
@@ -189,8 +171,8 @@ export async function linearApiRequest<T = unknown>(
     });
 
     if (response.status === 401) {
-      clearTokenRecord(workspaceId);
-      throw new ReAuthorizationRequiredError(
+      markInstallationInactive(workspaceId);
+      throw new TokenRevokedError(
         workspaceId,
         `Persistent 401 after token refresh for workspace ${workspaceId}`,
       );

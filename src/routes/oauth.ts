@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto';
 import { Router, Request, Response } from 'express';
-import { saveTokenRecord, getTokenRecord, needsReAuthorization } from '../services/linearAuth';
+import { saveInstallation, getInstallationByWorkspace } from '../services/installationStore';
 
 const router = Router();
 
@@ -32,6 +32,13 @@ interface LinearGraphQLResponse<T> {
 interface LinearViewerData {
   viewer: {
     id: string;
+  };
+}
+
+interface LinearOrganizationData {
+  organization: {
+    id: string;
+    name: string;
   };
 }
 
@@ -132,40 +139,59 @@ router.get('/callback', async (req: Request, res: Response): Promise<void> => {
   }
 
   let installationId: string;
+  let workspaceId: string;
+  let workspaceName: string;
   try {
-    const viewerResponse = await fetch(LINEAR_GRAPHQL_URL, {
+    const query = `{
+      viewer { id }
+      organization { id name }
+    }`;
+
+    const gqlResponse = await fetch(LINEAR_GRAPHQL_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${tokenData.access_token}`,
       },
-      body: JSON.stringify({ query: '{ viewer { id } }' }),
+      body: JSON.stringify({ query }),
     });
 
-    if (!viewerResponse.ok) {
-      const text = await viewerResponse.text();
-      throw new Error(`Viewer query failed (${viewerResponse.status}): ${text}`);
+    if (!gqlResponse.ok) {
+      const text = await gqlResponse.text();
+      throw new Error(`GraphQL query failed (${gqlResponse.status}): ${text}`);
     }
 
-    const viewerData = await viewerResponse.json() as LinearGraphQLResponse<LinearViewerData>;
-    installationId = viewerData?.data?.viewer?.id!;
+    const gqlData = await gqlResponse.json() as LinearGraphQLResponse<LinearViewerData & LinearOrganizationData>;
+
+    installationId = gqlData?.data?.viewer?.id ?? '';
+    workspaceId = gqlData?.data?.organization?.id ?? '';
+    workspaceName = gqlData?.data?.organization?.name ?? '';
 
     if (!installationId) {
       throw new Error('Could not retrieve installation ID from viewer query');
+    }
+    if (!workspaceId) {
+      throw new Error('Could not retrieve workspace ID from organization query');
     }
   } catch (err) {
     res.status(502).json({ error: (err as Error).message });
     return;
   }
 
-  saveTokenRecord(installationId, {
+  const now = Date.now();
+  saveInstallation({
+    workspaceId,
+    workspaceName,
+    appInstallationId: installationId,
     accessToken: tokenData.access_token,
     refreshToken: tokenData.refresh_token,
-    expiresAt: Date.now() + (tokenData.expires_in ?? 3600) * 1000,
-    installationId,
+    expiresAt: now + (tokenData.expires_in ?? 3600) * 1000,
+    active: true,
+    createdAt: now,
+    updatedAt: now,
   });
 
-  res.json({ ok: true, installationId });
+  res.json({ ok: true, installationId, workspaceId });
 });
 
 /**
@@ -175,17 +201,17 @@ router.get('/callback', async (req: Request, res: Response): Promise<void> => {
 router.get('/status/:workspaceId', (req: Request, res: Response): void => {
   const { workspaceId } = req.params;
 
-  if (needsReAuthorization(workspaceId)) {
+  const record = getInstallationByWorkspace(workspaceId);
+  if (!record) {
+    res.status(404).json({ status: 'not_found' });
+    return;
+  }
+
+  if (!record.active) {
     res.status(401).json({
       status: 'reauthorization_required',
       installUrl: `/oauth/install`,
     });
-    return;
-  }
-
-  const record = getTokenRecord(workspaceId);
-  if (!record) {
-    res.status(404).json({ status: 'not_found' });
     return;
   }
 
