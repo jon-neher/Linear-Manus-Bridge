@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto';
 import { Router, Request, Response } from 'express';
-import { saveInstallation } from '../services/installationStore';
+import { saveInstallation, getInstallationByWorkspace } from '../services/installationStore';
 
 const router = Router();
 
@@ -8,6 +8,14 @@ const LINEAR_AUTHORIZE_URL = 'https://linear.app/oauth/authorize';
 const LINEAR_TOKEN_URL = 'https://api.linear.app/oauth/token';
 const LINEAR_GRAPHQL_URL = 'https://api.linear.app/graphql';
 
+// Required OAuth scopes for the Manus agent integration:
+//   read            – default read access
+//   write           – create/update issues and comments
+//   app:assignable  – allows the app to be set as delegate on issues and added to projects
+//   app:mentionable – allows the app to be mentioned in issues, documents, and editor surfaces
+//
+// Note: when a user assigns an issue to the app, Linear stores the app in the `delegate` field
+// (not `assignee`) to preserve human ownership while the agent acts on their behalf.
 const OAUTH_SCOPES = 'read,write,app:assignable,app:mentionable';
 
 interface LinearTokenResponse {
@@ -184,6 +192,34 @@ router.get('/callback', async (req: Request, res: Response): Promise<void> => {
   });
 
   res.json({ ok: true, installationId, workspaceId });
+});
+
+/**
+ * GET /oauth/status/:workspaceId
+ * Returns the token status for a workspace, including whether re-authorization is needed.
+ */
+router.get('/status/:workspaceId', (req: Request, res: Response): void => {
+  const { workspaceId } = req.params;
+
+  const record = getInstallationByWorkspace(workspaceId);
+  if (!record) {
+    res.status(404).json({ status: 'not_found' });
+    return;
+  }
+
+  if (!record.active) {
+    res.status(401).json({
+      status: 'reauthorization_required',
+      installUrl: `/oauth/install`,
+    });
+    return;
+  }
+
+  const expiresIn = Math.max(0, Math.floor((record.expiresAt - Date.now()) / 1000));
+  res.json({
+    status: 'active',
+    expiresInSeconds: expiresIn,
+  });
 });
 
 export default router;

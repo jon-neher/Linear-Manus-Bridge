@@ -1,8 +1,13 @@
 import express from 'express';
 import oauthRouter from './routes/oauth';
+import webhookRouter from './routes/webhook';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Webhook route uses express.raw() internally for HMAC verification;
+// must be mounted before the global express.json() middleware.
+app.use('/webhook', webhookRouter);
 
 app.use(express.json());
 
