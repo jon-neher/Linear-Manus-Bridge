@@ -2,14 +2,21 @@
   "name": "linear-manus-bridge",
   "version": "0.1.0",
   "description": "Middleware service to assign Linear issues to Manus via API",
-  "main": "src/index.js",
+  "main": "dist/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "express": "^4.18.2",
     "express-session": "^1.17.3"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.11.16",
+    "typescript": "^5.3.3"
   },
   "engines": {
     "node": ">=18.0.0"

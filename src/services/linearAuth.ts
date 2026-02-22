@@ -1,39 +1,44 @@
-'use strict';
-
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000; // 5-minute buffer before expiry
+
+export interface TokenRecord {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;
+  installationId: string;
+}
+
+interface LinearTokenResponse {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+}
 
 // In-memory token store keyed by workspaceId.
 // Replace with a persistent database or secrets store in production.
-const tokenStore = new Map();
+const tokenStore = new Map<string, TokenRecord>();
 
 /**
  * Persist a token record for a workspace.
- * @param {string} workspaceId
- * @param {{ accessToken: string, refreshToken: string, expiresAt: number, installationId: string }} record
  */
-function saveTokenRecord(workspaceId, record) {
+export function saveTokenRecord(workspaceId: string, record: TokenRecord): void {
   tokenStore.set(workspaceId, { ...record });
 }
 
 /**
  * Retrieve the stored token record for a workspace.
- * @param {string} workspaceId
- * @returns {{ accessToken: string, refreshToken: string, expiresAt: number, installationId: string } | undefined}
  */
-function getTokenRecord(workspaceId) {
+export function getTokenRecord(workspaceId: string): TokenRecord | undefined {
   return tokenStore.get(workspaceId);
 }
 
 /**
  * Exchange a refresh token for a new token pair from Linear.
- * @param {string} refreshToken
- * @returns {Promise<{ access_token: string, refresh_token: string, expires_in: number }>}
  */
-async function refreshAccessToken(refreshToken) {
+async function refreshAccessToken(refreshToken: string): Promise<LinearTokenResponse> {
   const params = new URLSearchParams({
     grant_type: 'refresh_token',
-    client_id: process.env.LINEAR_CLIENT_ID,
-    client_secret: process.env.LINEAR_CLIENT_SECRET,
+    client_id: process.env.LINEAR_CLIENT_ID!,
+    client_secret: process.env.LINEAR_CLIENT_SECRET!,
     refresh_token: refreshToken,
   });
 
@@ -48,15 +53,13 @@ async function refreshAccessToken(refreshToken) {
     throw new Error(`Token refresh failed (${response.status}): ${text}`);
   }
 
-  return response.json();
+  return response.json() as Promise<LinearTokenResponse>;
 }
 
 /**
  * Return a valid access token for the given workspace, refreshing it if needed.
- * @param {string} workspaceId
- * @returns {Promise<string>} A valid access token
  */
-async function getValidToken(workspaceId) {
+export async function getValidToken(workspaceId: string): Promise<string> {
   const record = getTokenRecord(workspaceId);
   if (!record) {
     throw new Error(`No token record found for workspace: ${workspaceId}`);
@@ -69,7 +72,7 @@ async function getValidToken(workspaceId) {
 
   const tokenData = await refreshAccessToken(record.refreshToken);
 
-  const newRecord = {
+  const newRecord: TokenRecord = {
     accessToken: tokenData.access_token,
     refreshToken: tokenData.refresh_token,
     expiresAt: Date.now() + tokenData.expires_in * 1000,
@@ -81,5 +84,3 @@ async function getValidToken(workspaceId) {
 
   return newRecord.accessToken;
 }
-
-module.exports = { getValidToken, saveTokenRecord, getTokenRecord };

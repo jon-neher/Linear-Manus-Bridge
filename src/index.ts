@@ -1,7 +1,5 @@
-'use strict';
-
-const express = require('express');
-const oauthRouter = require('./routes/oauth');
+import express from 'express';
+import oauthRouter from './routes/oauth';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,4 +13,4 @@ app.listen(PORT, () => {
   console.log(`Linear-Manus Bridge listening on port ${PORT}`);
 });
 
-module.exports = app;
+export default app;
