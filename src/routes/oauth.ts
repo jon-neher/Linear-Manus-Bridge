@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto';
 import { Router, Request, Response } from 'express';
 import { saveInstallation, getInstallationByWorkspace } from '../services/installationStore';
+import { storeState, consumeState } from '../services/oauthStateStore';
 
 const router = Router();
 
@@ -42,31 +43,8 @@ interface LinearOrganizationData {
   };
 }
 
-// Short-lived in-memory state store for CSRF protection.
-// Replace with a distributed cache (e.g. Redis) in a multi-instance deployment.
-const pendingStates = new Map<string, number>();
-const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-
 function generateState(): string {
   return randomBytes(32).toString('hex');
-}
-
-function storeState(state: string): void {
-  pendingStates.set(state, Date.now());
-
-  // Clean up expired states
-  for (const [s, ts] of pendingStates) {
-    if (Date.now() - ts > STATE_TTL_MS) {
-      pendingStates.delete(s);
-    }
-  }
-}
-
-function consumeState(state: string): boolean {
-  const ts = pendingStates.get(state);
-  if (!ts) return false;
-  pendingStates.delete(state);
-  return Date.now() - ts <= STATE_TTL_MS;
 }
 
 /**
