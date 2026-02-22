@@ -162,6 +162,15 @@ function buildPromptFromDetails(
  *    a standard assignee change. Kept for backwards compatibility.
  */
 router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
+  console.log('[linear/webhook] Received request', {
+    method: req.method,
+    headers: {
+      'content-type': req.headers['content-type'],
+      'linear-signature': req.headers['linear-signature'],
+      'x-linear-signature': req.headers['x-linear-signature'],
+    },
+    bodyPreview: JSON.stringify(req.body)?.slice(0, 300),
+  });
   const signatureHeader =
     (req.headers['linear-signature'] as string | undefined) ??
     (req.headers['x-linear-signature'] as string | undefined);
@@ -172,39 +181,53 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
     return;
   }
 
+  console.log('[linear/webhook] Signature header:', signatureHeader ?? '(none)');
   if (!verifyLinearSignature(rawBody, signatureHeader)) {
+    console.error('[linear/webhook] Signature verification FAILED');
     res.status(401).json({ error: 'Invalid webhook signature' });
     return;
   }
+  console.log('[linear/webhook] Signature OK');
 
   const body = req.body as AgentSessionEventPayload | LinearIssuePayload;
   const eventType = (body as { type?: string }).type;
+  console.log('[linear/webhook] eventType:', eventType);
 
   // ── Path 1: AgentSessionEvent ──────────────────────────────────────────────
   if (eventType === 'AgentSessionEvent') {
+    console.log('[linear/webhook] Handling AgentSessionEvent');
     const payload = body as AgentSessionEventPayload;
 
+    console.log('[linear/webhook] AgentSessionEvent action:', payload.action);
     if (payload.action !== 'created') {
+      console.log('[linear/webhook] Ignoring non-created action:', payload.action);
       res.json({ ok: true, ignored: true, reason: `action=${payload.action}` });
       return;
     }
 
     const issueId = payload.agentSession?.issue?.id;
+    console.log('[linear/webhook] agentSession.issue.id:', issueId);
     if (!issueId) {
+      console.error('[linear/webhook] Missing agentSession.issue.id');
       res.status(400).json({ error: 'AgentSessionEvent missing agentSession.issue.id' });
       return;
     }
 
     const workspaceId = payload.organizationId;
+    console.log('[linear/webhook] organizationId:', workspaceId);
     if (!workspaceId) {
+      console.error('[linear/webhook] Missing organizationId');
       res.status(422).json({ error: 'AgentSessionEvent missing organizationId' });
       return;
     }
 
     let accessToken: string;
     try {
+      console.log('[linear/webhook] Fetching token for workspace:', workspaceId);
       accessToken = await getValidToken(workspaceId);
+      console.log('[linear/webhook] Token fetched OK');
     } catch (err) {
+      console.error('[linear/webhook] getValidToken failed:', (err as Error).message);
       res.status(503).json({ error: (err as Error).message });
       return;
     }
@@ -258,6 +281,7 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
     }
 
     storeTask(taskId, { linearIssueId: issueId, linearTeamId: teamId, workspaceId });
+    console.log('[linear/webhook] Task created successfully:', taskId);
     res.json({ ok: true, taskId });
     return;
   }
