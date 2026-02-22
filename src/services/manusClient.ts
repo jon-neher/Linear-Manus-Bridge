@@ -31,6 +31,7 @@ export async function createTask(
       prompt,
       agentProfile: options.agentProfile ?? process.env.MANUS_AGENT_PROFILE ?? 'manus-1.6',
       taskMode: options.taskMode ?? process.env.MANUS_TASK_MODE ?? 'agent',
+      interactiveMode: true,
     }),
   });
 
@@ -45,5 +46,38 @@ export async function createTask(
     throw new Error('Manus response missing task_id');
   }
 
+  return { taskId: data.task_id, taskUrl: data.task_url };
+}
+
+export async function replyToTask(
+  taskId: string,
+  message: string,
+): Promise<{ taskId: string; taskUrl?: string }> {
+  const apiKey = process.env.MANUS_API_KEY;
+  if (!apiKey) {
+    throw new Error('MANUS_API_KEY is not configured');
+  }
+
+  const response = await fetch(`${MANUS_API_BASE_URL}/v1/tasks`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      API_KEY: apiKey,
+    },
+    body: JSON.stringify({
+      taskId,
+      prompt: message,
+      agentProfile: process.env.MANUS_AGENT_PROFILE ?? 'manus-1.6',
+      taskMode: process.env.MANUS_TASK_MODE ?? 'agent',
+      interactiveMode: true,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Manus reply failed (${response.status}): ${text}`);
+  }
+
+  const data = (await response.json()) as ManusTaskResponse;
   return { taskId: data.task_id, taskUrl: data.task_url };
 }

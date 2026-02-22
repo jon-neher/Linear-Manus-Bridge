@@ -13,6 +13,7 @@ import {
   updateIssueState,
 } from '../services/linearClient';
 import { verifyManusWebhookSignature } from '../services/manusWebhookVerifier';
+import { createAgentActivity, updateAgentSession } from '../services/linearAgentSession';
 
 const router = Router();
 
@@ -67,6 +68,18 @@ interface ManusProgressPayload {
     linear_team_id?: string;
     workspace_id?: string;
   };
+}
+
+interface ManusCreatedDetail {
+  task_id: string;
+  task_title?: string;
+  task_url?: string;
+}
+
+interface ManusCreatedPayload {
+  event_type?: 'task_created';
+  task_detail?: ManusCreatedDetail;
+  task_id?: string;
 }
 
 /**
@@ -249,16 +262,97 @@ router.post('/manus/progress', async (req: RawBodyRequest, res: Response): Promi
     return;
   }
 
+  // Emit agent activity for real-time visibility in the agent session UI
+  const sessionId = stored?.agentSessionId;
+  if (sessionId) {
+    const progressMessage = detail?.message?.trim() || 'Working…';
+    await createAgentActivity(sessionId, {
+      type: 'action',
+      action: detail?.progress_type === 'plan_update' ? 'Plan update' : 'Working',
+      result: progressMessage,
+    }, accessToken).catch((err) =>
+      console.error('[webhook/manus/progress] Failed to emit activity:', err),
+    );
+  }
+
   res.json({ ok: true });
 });
 
 /**
  * POST /webhook/manus
- * Receives task completion callbacks from Manus, posts the final result as a
- * Linear comment, and transitions the issue state accordingly.
+ * Receives task lifecycle callbacks from Manus (task_created, task_stopped),
+ * posts results as Linear comments, emits agent activities, and transitions
+ * the issue state accordingly.
  */
 router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> => {
   if (!(await checkManusSignature(req, res))) return;
+
+  // Handle task_created events (acknowledge and set external URL)
+  const eventType = (req.body as { event_type?: string }).event_type;
+  if (eventType === 'task_created') {
+    const createdPayload = req.body as ManusCreatedPayload;
+    const createdDetail = createdPayload.task_detail;
+    const createdTaskId = createdDetail?.task_id ?? createdPayload.task_id;
+    if (!createdTaskId) {
+      res.status(400).json({ error: 'Missing task_id in task_created event' });
+      return;
+    }
+
+    const stored = getTask(createdTaskId);
+    if (stored?.agentSessionId && stored.workspaceId) {
+      try {
+        const accessToken = await getValidToken(stored.workspaceId);
+        if (createdDetail?.task_url) {
+          await updateAgentSession(stored.agentSessionId, {
+            externalUrls: [{ label: 'View in Manus', url: createdDetail.task_url }],
+          }, accessToken).catch(() => {});
+        }
+        if (createdDetail?.task_title) {
+          await createAgentActivity(stored.agentSessionId, {
+            type: 'thought',
+            body: `Manus is working on: ${createdDetail.task_title}`,
+          }, accessToken).catch(() => {});
+        }
+      } catch (err) {
+        console.error('[webhook/manus] task_created activity failed:', err);
+      }
+    }
+
+    console.log('[webhook/manus] task_created acknowledged:', createdTaskId);
+    res.json({ ok: true });
+    return;
+  }
+
+  // Handle task_progress events inline (Manus sends all events to the same URL)
+  if (eventType === 'task_progress') {
+    const progressPayload = req.body as ManusProgressPayload;
+    const progressDetail = progressPayload.progress_detail;
+    const progressTaskId = progressDetail?.task_id ?? progressPayload.task_id;
+
+    if (!progressTaskId) {
+      res.status(400).json({ error: 'Missing task_id in task_progress event' });
+      return;
+    }
+
+    const stored = getTask(progressTaskId);
+    if (stored?.agentSessionId && stored.workspaceId) {
+      try {
+        const accessToken = await getValidToken(stored.workspaceId);
+        const progressMessage = progressDetail?.message?.trim() || 'Working…';
+        await createAgentActivity(stored.agentSessionId, {
+          type: 'action',
+          action: progressDetail?.progress_type === 'plan_update' ? 'Plan update' : 'Working',
+          result: progressMessage,
+        }, accessToken).catch(() => {});
+      } catch (err) {
+        console.error('[webhook/manus] task_progress activity failed:', err);
+      }
+    }
+
+    console.log('[webhook/manus] task_progress acknowledged:', progressTaskId);
+    res.json({ ok: true });
+    return;
+  }
 
   const payload = req.body as ManusStoppedPayload;
   const detail = payload.task_detail;
@@ -331,6 +425,36 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
       }
     } catch (err) {
       console.error('Failed to update issue state:', err);
+    }
+  }
+
+  // Emit agent activity to close out the session in Linear's UI
+  const sessionId = stored?.agentSessionId;
+  if (sessionId) {
+    if (stopReason === 'ask') {
+      // Manus is asking for input — emit a response so the user sees the question
+      const question = detail?.message?.trim() || 'Manus needs more information to continue.';
+      await createAgentActivity(sessionId, {
+        type: 'response',
+        body: question,
+      }, accessToken).catch((err) =>
+        console.error('[webhook/manus] Failed to emit ask activity:', err),
+      );
+    } else {
+      // Task completed — emit a final response
+      const resultBody = detail?.message?.trim() || payload.result || 'Task completed.';
+      const taskUrl = detail?.task_url;
+      const attachmentLinks = detail?.attachments?.length
+        ? '\n\n**Attachments:**\n' + detail.attachments.map((a) => `- [${a.file_name}](${a.url})`).join('\n')
+        : '';
+      const viewLink = taskUrl ? `\n\n[View full results in Manus](${taskUrl})` : '';
+
+      await createAgentActivity(sessionId, {
+        type: 'response',
+        body: `${resultBody}${attachmentLinks}${viewLink}`,
+      }, accessToken).catch((err) =>
+        console.error('[webhook/manus] Failed to emit response activity:', err),
+      );
     }
   }
 

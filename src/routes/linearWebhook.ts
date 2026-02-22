@@ -6,8 +6,12 @@ import {
   getIssueDetails,
   updateIssueState,
 } from '../services/linearClient';
-import { createTask } from '../services/manusClient';
-import { storeTask } from '../services/taskStore';
+import { createTask, replyToTask } from '../services/manusClient';
+import { storeTask, getTask } from '../services/taskStore';
+import {
+  createAgentActivity,
+  updateAgentSession,
+} from '../services/linearAgentSession';
 
 const router = Router();
 
@@ -31,11 +35,17 @@ interface AgentSessionWebhookPayload {
   status?: string;
 }
 
+interface AgentActivityPayload {
+  id?: string;
+  body?: string;
+}
+
 interface AgentSessionEventPayload {
   type: 'AgentSessionEvent';
   action: 'created' | 'prompted';
   organizationId: string;
   agentSession: AgentSessionWebhookPayload;
+  agentActivity?: AgentActivityPayload | null;
   promptContext?: string | null;
   webhookId?: string;
   webhookTimestamp?: number;
@@ -199,13 +209,74 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
     const payload = body as AgentSessionEventPayload;
 
     console.log('[linear/webhook] AgentSessionEvent action:', payload.action);
+
+    const agentSessionId = payload.agentSession?.id;
+    const issueId = payload.agentSession?.issue?.id;
+    const workspaceId = payload.organizationId;
+
+    // ── Handle "prompted" — user replied in the agent session ──────────────
+    if (payload.action === 'prompted') {
+      console.log('[linear/webhook] Handling prompted event');
+      const userMessage = payload.agentActivity?.body;
+      if (!userMessage || !agentSessionId || !workspaceId) {
+        res.json({ ok: true, ignored: true, reason: 'prompted missing data' });
+        return;
+      }
+
+      let accessToken: string;
+      try {
+        accessToken = await getValidToken(workspaceId);
+      } catch (err) {
+        res.status(503).json({ error: (err as Error).message });
+        return;
+      }
+
+      // Find the Manus task ID associated with this session
+      let manusTaskId: string | undefined;
+      // Search task store for matching agentSessionId
+      const { findTaskBySession } = await import('../services/taskStore');
+      manusTaskId = findTaskBySession(agentSessionId);
+
+      if (!manusTaskId) {
+        console.error('[linear/webhook] No Manus task found for session:', agentSessionId);
+        await createAgentActivity(agentSessionId, {
+          type: 'error',
+          body: 'Could not find the associated Manus task to forward your message.',
+        }, accessToken).catch(() => {});
+        res.status(422).json({ error: 'No Manus task found for this session' });
+        return;
+      }
+
+      // Acknowledge the user's message
+      await createAgentActivity(agentSessionId, {
+        type: 'thought',
+        body: 'Forwarding your message to Manus…',
+      }, accessToken).catch((err) => console.error('Failed to emit thought:', err));
+
+      try {
+        await replyToTask(manusTaskId, userMessage);
+        console.log('[linear/webhook] Replied to Manus task:', manusTaskId);
+      } catch (err) {
+        await createAgentActivity(agentSessionId, {
+          type: 'error',
+          body: `Failed to forward message to Manus: ${(err as Error).message}`,
+        }, accessToken).catch(() => {});
+        res.status(502).json({ error: (err as Error).message });
+        return;
+      }
+
+      res.json({ ok: true, forwarded: true });
+      return;
+    }
+
+    // ── Handle "created" — new agent session ──────────────────────────────
     if (payload.action !== 'created') {
       console.log('[linear/webhook] Ignoring non-created action:', payload.action);
       res.json({ ok: true, ignored: true, reason: `action=${payload.action}` });
       return;
     }
 
-    const issueId = payload.agentSession?.issue?.id;
+    console.log('[linear/webhook] agentSession.id:', agentSessionId);
     console.log('[linear/webhook] agentSession.issue.id:', issueId);
     if (!issueId) {
       console.error('[linear/webhook] Missing agentSession.issue.id');
@@ -213,7 +284,6 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
       return;
     }
 
-    const workspaceId = payload.organizationId;
     console.log('[linear/webhook] organizationId:', workspaceId);
     if (!workspaceId) {
       console.error('[linear/webhook] Missing organizationId');
@@ -230,6 +300,16 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
       console.error('[linear/webhook] getValidToken failed:', (err as Error).message);
       res.status(503).json({ error: (err as Error).message });
       return;
+    }
+
+    // Emit initial thought activity IMMEDIATELY (must be within 10s)
+    if (agentSessionId) {
+      await createAgentActivity(agentSessionId, {
+        type: 'thought',
+        body: 'Received issue — creating Manus task…',
+      }, accessToken).catch((err) =>
+        console.error('[linear/webhook] Failed to emit initial thought:', err),
+      );
     }
 
     let prompt: string;
@@ -252,6 +332,12 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
         teamId = details.teamId ?? teamId;
         prompt = buildPromptFromDetails(details.title, details.description, details.comments);
       } catch (err) {
+        if (agentSessionId) {
+          await createAgentActivity(agentSessionId, {
+            type: 'error',
+            body: `Failed to fetch issue details: ${(err as Error).message}`,
+          }, accessToken).catch(() => {});
+        }
         res.status(502).json({ error: (err as Error).message });
         return;
       }
@@ -272,16 +358,50 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
     }
 
     let taskId: string;
+    let taskUrl: string | undefined;
     try {
       const result = await createTask(prompt!);
       taskId = result.taskId;
+      taskUrl = result.taskUrl;
     } catch (err) {
+      if (agentSessionId) {
+        await createAgentActivity(agentSessionId, {
+          type: 'error',
+          body: `Failed to create Manus task: ${(err as Error).message}`,
+        }, accessToken).catch(() => {});
+      }
       res.status(502).json({ error: (err as Error).message });
       return;
     }
 
-    storeTask(taskId, { linearIssueId: issueId, linearTeamId: teamId, workspaceId });
+    storeTask(taskId, {
+      linearIssueId: issueId,
+      linearTeamId: teamId,
+      workspaceId,
+      agentSessionId,
+    });
     console.log('[linear/webhook] Task created successfully:', taskId);
+
+    // Update agent session with Manus task URL and emit action activity
+    if (agentSessionId) {
+      if (taskUrl) {
+        await updateAgentSession(agentSessionId, {
+          externalUrls: [{ label: 'View in Manus', url: taskUrl }],
+        }, accessToken).catch((err) =>
+          console.error('[linear/webhook] Failed to set external URL:', err),
+        );
+      }
+
+      await createAgentActivity(agentSessionId, {
+        type: 'action',
+        action: 'Created Manus task',
+        parameter: taskId,
+        result: taskUrl ? `[View in Manus](${taskUrl})` : 'Task created successfully',
+      }, accessToken).catch((err) =>
+        console.error('[linear/webhook] Failed to emit task-created activity:', err),
+      );
+    }
+
     res.json({ ok: true, taskId });
     return;
   }
