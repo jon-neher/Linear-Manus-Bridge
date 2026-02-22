@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto';
 import { Router, Request, Response } from 'express';
-import { saveInstallation, getInstallationByWorkspace } from '../services/installationStore';
+import { saveInstallation, getInstallationByWorkspace, getAllActiveInstallations } from '../services/installationStore';
 import { storeState, consumeState } from '../services/oauthStateStore';
 
 const router = Router();
@@ -170,6 +170,22 @@ router.get('/callback', async (req: Request, res: Response): Promise<void> => {
   });
 
   res.json({ ok: true, installationId, workspaceId });
+});
+
+/**
+ * GET /oauth/installations
+ * Lists all stored workspace installations.
+ * Used to verify that the OAuth flow completed successfully.
+ */
+router.get('/installations', (_req: Request, res: Response): void => {
+  const all = getAllActiveInstallations();
+  const result = all.map((rec) => ({
+    workspaceId: rec.workspaceId,
+    workspaceName: rec.workspaceName,
+    active: rec.active,
+    expiresInSeconds: Math.max(0, Math.floor((rec.expiresAt - Date.now()) / 1000)),
+  }));
+  res.json({ count: result.length, installations: result });
 });
 
 /**
