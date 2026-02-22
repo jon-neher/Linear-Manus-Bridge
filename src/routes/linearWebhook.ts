@@ -15,13 +15,33 @@ interface RawBodyRequest extends Request {
   rawBody?: Buffer;
 }
 
-interface LinearWebhookPayload {
-  type?: string;
-  action?: string;
-  data?: Record<string, unknown>;
-  organizationId?: string;
-  updatedFields?: string[];
+// ─── AgentSessionEvent payload types ────────────────────────────────────────
+
+interface AgentSessionIssue {
+  id: string;
+  title?: string;
+  description?: string | null;
+  teamId?: string;
+  team?: { id?: string; organizationId?: string; organization?: { id?: string } | null } | null;
 }
+
+interface AgentSessionWebhookPayload {
+  id: string;
+  issue?: AgentSessionIssue | null;
+  status?: string;
+}
+
+interface AgentSessionEventPayload {
+  type: 'AgentSessionEvent';
+  action: 'created' | 'prompted';
+  organizationId: string;
+  agentSession: AgentSessionWebhookPayload;
+  promptContext?: string | null;
+  webhookId?: string;
+  webhookTimestamp?: number;
+}
+
+// ─── Legacy Issue assignment payload types ───────────────────────────────────
 
 interface LinearIssueData {
   id?: string;
@@ -36,14 +56,15 @@ interface LinearIssueData {
   organizationId?: string;
 }
 
-function extractIssueData(payload: LinearWebhookPayload): LinearIssueData | undefined {
-  const data = payload.data as LinearIssueData | undefined;
-  if (!data) return undefined;
-  if ((data as { issue?: LinearIssueData }).issue) {
-    return (data as { issue: LinearIssueData }).issue;
-  }
-  return data;
+interface LinearIssuePayload {
+  type?: string;
+  action?: string;
+  data?: Record<string, unknown>;
+  organizationId?: string;
+  updatedFields?: string[];
 }
+
+// ─── Signature verification ──────────────────────────────────────────────────
 
 function extractSignatureCandidates(signatureHeader: string): string[] {
   const candidates: string[] = [];
@@ -70,11 +91,21 @@ function verifyLinearSignature(rawBody: Buffer, signatureHeader?: string): boole
 
   const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
   const candidates = extractSignatureCandidates(signatureHeader);
-
   return candidates.some((candidate) => {
     if (candidate.length !== expected.length) return false;
     return timingSafeEqual(Buffer.from(candidate), Buffer.from(expected));
   });
+}
+
+// ─── Legacy helpers ──────────────────────────────────────────────────────────
+
+function extractIssueData(payload: LinearIssuePayload): LinearIssueData | undefined {
+  const data = payload.data as LinearIssueData | undefined;
+  if (!data) return undefined;
+  if ((data as { issue?: LinearIssueData }).issue) {
+    return (data as { issue: LinearIssueData }).issue;
+  }
+  return data;
 }
 
 function isManusAssignment(
@@ -83,23 +114,16 @@ function isManusAssignment(
   assigneeType?: string,
 ): boolean {
   const configuredId = process.env.LINEAR_MANUS_ASSIGNEE_ID;
-  if (configuredId) {
-    return assigneeId === configuredId;
-  }
-
-  if (assigneeName && assigneeName.toLowerCase().includes('manus')) {
-    return true;
-  }
-
+  if (configuredId) return assigneeId === configuredId;
+  if (assigneeName && assigneeName.toLowerCase().includes('manus')) return true;
   if (assigneeType) {
     const normalized = assigneeType.toLowerCase();
     return normalized === 'app' || normalized === 'application' || normalized === 'bot';
   }
-
   return false;
 }
 
-function buildPrompt(
+function buildPromptFromDetails(
   title: string,
   description: string | null | undefined,
   comments: Array<{ body: string; authorName?: string }>,
@@ -111,7 +135,6 @@ function buildPrompt(
   lines.push(description?.trim() ? description : '(none)');
   lines.push('');
   lines.push('Comments:');
-
   if (!comments.length) {
     lines.push('(none)');
   } else {
@@ -121,18 +144,27 @@ function buildPrompt(
       lines.push(`- ${prefix}${body}`);
     }
   }
-
   return lines.join('\n');
 }
 
+// ─── Route ───────────────────────────────────────────────────────────────────
+
 /**
- * POST /webhook/linear
- * Receives Linear assignment events and forwards the issue to Manus.
+ * POST /linear/webhook
+ *
+ * Handles two event types from Linear:
+ *
+ * 1. AgentSessionEvent (action: "created") — fired when a user delegates an
+ *    issue to the Manus app via the agent session UI. This is the primary
+ *    trigger for creating a Manus task.
+ *
+ * 2. Issue (legacy) — fired when an issue is assigned to the Manus app via
+ *    a standard assignee change. Kept for backwards compatibility.
  */
-router.post('/linear', async (req: RawBodyRequest, res: Response): Promise<void> => {
+router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
   const signatureHeader =
-    (req.headers['linear-signature'] as string | undefined)
-    ?? (req.headers['x-linear-signature'] as string | undefined);
+    (req.headers['linear-signature'] as string | undefined) ??
+    (req.headers['x-linear-signature'] as string | undefined);
   const rawBody = req.rawBody;
 
   if (!rawBody) {
@@ -145,14 +177,101 @@ router.post('/linear', async (req: RawBodyRequest, res: Response): Promise<void>
     return;
   }
 
-  const payload = req.body as LinearWebhookPayload;
-  const eventType = payload.type?.toLowerCase();
-  if (eventType && eventType !== 'issue') {
-    res.json({ ok: true, ignored: true });
+  const body = req.body as AgentSessionEventPayload | LinearIssuePayload;
+  const eventType = (body as { type?: string }).type;
+
+  // ── Path 1: AgentSessionEvent ──────────────────────────────────────────────
+  if (eventType === 'AgentSessionEvent') {
+    const payload = body as AgentSessionEventPayload;
+
+    if (payload.action !== 'created') {
+      res.json({ ok: true, ignored: true, reason: `action=${payload.action}` });
+      return;
+    }
+
+    const issueId = payload.agentSession?.issue?.id;
+    if (!issueId) {
+      res.status(400).json({ error: 'AgentSessionEvent missing agentSession.issue.id' });
+      return;
+    }
+
+    const workspaceId = payload.organizationId;
+    if (!workspaceId) {
+      res.status(422).json({ error: 'AgentSessionEvent missing organizationId' });
+      return;
+    }
+
+    let accessToken: string;
+    try {
+      accessToken = await getValidToken(workspaceId);
+    } catch (err) {
+      res.status(503).json({ error: (err as Error).message });
+      return;
+    }
+
+    let prompt: string;
+    let teamId: string | undefined =
+      payload.agentSession.issue?.teamId ?? payload.agentSession.issue?.team?.id;
+
+    if (payload.promptContext) {
+      prompt = payload.promptContext;
+      if (!teamId) {
+        try {
+          const details = await getIssueDetails(issueId, accessToken);
+          teamId = details.teamId ?? undefined;
+        } catch {
+          // Non-fatal — state transition will be skipped.
+        }
+      }
+    } else {
+      try {
+        const details = await getIssueDetails(issueId, accessToken);
+        teamId = details.teamId ?? teamId;
+        prompt = buildPromptFromDetails(details.title, details.description, details.comments);
+      } catch (err) {
+        res.status(502).json({ error: (err as Error).message });
+        return;
+      }
+    }
+
+    if (teamId) {
+      const inProgressState = process.env.LINEAR_IN_PROGRESS_STATE ?? 'In Progress';
+      try {
+        const stateId = await findStateIdByName(teamId, inProgressState, accessToken);
+        if (stateId) {
+          await updateIssueState(issueId, stateId, accessToken);
+        } else {
+          console.warn(`State "${inProgressState}" not found for team ${teamId}`);
+        }
+      } catch (err) {
+        console.error('Failed to update issue state:', err);
+      }
+    }
+
+    let taskId: string;
+    try {
+      const result = await createTask(prompt!);
+      taskId = result.taskId;
+    } catch (err) {
+      res.status(502).json({ error: (err as Error).message });
+      return;
+    }
+
+    storeTask(taskId, { linearIssueId: issueId, linearTeamId: teamId, workspaceId });
+    res.json({ ok: true, taskId });
     return;
   }
 
-  const issueData = extractIssueData(payload);
+  // ── Path 2: Legacy Issue assignment ───────────────────────────────────────
+  const legacyPayload = body as LinearIssuePayload;
+  const legacyType = legacyPayload.type?.toLowerCase();
+
+  if (legacyType && legacyType !== 'issue') {
+    res.json({ ok: true, ignored: true, reason: `type=${legacyType}` });
+    return;
+  }
+
+  const issueData = extractIssueData(legacyPayload);
   const issueId = issueData?.id;
   if (!issueId) {
     res.status(400).json({ error: 'Missing issue id in webhook payload' });
@@ -160,9 +279,9 @@ router.post('/linear', async (req: RawBodyRequest, res: Response): Promise<void>
   }
 
   if (
-    payload.updatedFields?.length
-    && !payload.updatedFields.includes('assigneeId')
-    && !payload.updatedFields.includes('assignee')
+    legacyPayload.updatedFields?.length &&
+    !legacyPayload.updatedFields.includes('assigneeId') &&
+    !legacyPayload.updatedFields.includes('assignee')
   ) {
     res.json({ ok: true, ignored: true });
     return;
@@ -178,10 +297,10 @@ router.post('/linear', async (req: RawBodyRequest, res: Response): Promise<void>
   }
 
   const workspaceId =
-    payload.organizationId
-    ?? issueData?.organizationId
-    ?? issueData?.team?.organization?.id
-    ?? issueData?.team?.organizationId;
+    legacyPayload.organizationId ??
+    issueData?.organizationId ??
+    issueData?.team?.organization?.id ??
+    issueData?.team?.organizationId;
 
   if (!workspaceId) {
     res.status(422).json({ error: 'Missing workspace/organization id in webhook payload' });
@@ -219,7 +338,7 @@ router.post('/linear', async (req: RawBodyRequest, res: Response): Promise<void>
     }
   }
 
-  const prompt = buildPrompt(
+  const prompt = buildPromptFromDetails(
     issueDetails.title,
     issueDetails.description,
     issueDetails.comments,
@@ -234,12 +353,7 @@ router.post('/linear', async (req: RawBodyRequest, res: Response): Promise<void>
     return;
   }
 
-  storeTask(taskId, {
-    linearIssueId: issueId,
-    linearTeamId: teamId,
-    workspaceId,
-  });
-
+  storeTask(taskId, { linearIssueId: issueId, linearTeamId: teamId, workspaceId });
   res.json({ ok: true, taskId });
 });
 
