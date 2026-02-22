@@ -43,7 +43,7 @@ export async function postComment(
   const data = await linearGql<{
     commentCreate: { comment?: { id: string } };
   }>(
-    `mutation CommentCreate($issueId: String!, $body: String!) {
+    `mutation CommentCreate($issueId: ID!, $body: String!) {
       commentCreate(input: { issueId: $issueId, body: $body }) {
         success
         comment { id }
@@ -62,7 +62,7 @@ export async function updateComment(
   accessToken: string,
 ): Promise<void> {
   await linearGql<unknown>(
-    `mutation CommentUpdate($commentId: String!, $body: String!) {
+    `mutation CommentUpdate($commentId: ID!, $body: String!) {
       commentUpdate(id: $commentId, input: { body: $body }) {
         success
         comment { id }
@@ -103,7 +103,7 @@ export async function getIssueDetails(
   commentLimit = 5,
 ): Promise<IssueDetails> {
   const data = await linearGql<IssueDetailsData>(
-    `query IssueDetails($issueId: String!, $commentLimit: Int!) {
+    `query IssueDetails($issueId: ID!, $commentLimit: Int!) {
       issue(id: $issueId) {
         id
         title
@@ -154,7 +154,7 @@ async function getWorkflowStates(
   accessToken: string,
 ): Promise<WorkflowState[]> {
   const data = await linearGql<WorkflowStatesData>(
-    `query WorkflowStates($teamId: String!) {
+    `query WorkflowStates($teamId: ID!) {
       workflowStates(filter: { team: { id: { eq: $teamId } } }) {
         nodes { id name type }
       }
@@ -183,7 +183,7 @@ export async function updateIssueState(
   accessToken: string,
 ): Promise<void> {
   await linearGql<unknown>(
-    `mutation IssueUpdate($issueId: String!, $stateId: String!) {
+    `mutation IssueUpdate($issueId: ID!, $stateId: ID!) {
       issueUpdate(id: $issueId, input: { stateId: $stateId }) {
         success
         issue { id state { name } }
