@@ -8,6 +8,14 @@ const LINEAR_AUTHORIZE_URL = 'https://linear.app/oauth/authorize';
 const LINEAR_TOKEN_URL = 'https://api.linear.app/oauth/token';
 const LINEAR_GRAPHQL_URL = 'https://api.linear.app/graphql';
 
+// Required OAuth scopes for the Manus agent integration:
+//   read            – default read access
+//   write           – create/update issues and comments
+//   app:assignable  – allows the app to be set as delegate on issues and added to projects
+//   app:mentionable – allows the app to be mentioned in issues, documents, and editor surfaces
+//
+// Note: when a user assigns an issue to the app, Linear stores the app in the `delegate` field
+// (not `assignee`) to preserve human ownership while the agent acts on their behalf.
 const OAUTH_SCOPES = 'read,write,app:assignable,app:mentionable';
 
 interface LinearTokenResponse {
