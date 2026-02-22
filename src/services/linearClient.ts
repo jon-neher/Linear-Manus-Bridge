@@ -39,17 +39,18 @@ export async function postComment(
   issueId: string,
   body: string,
   accessToken: string,
+  parentId?: string,
 ): Promise<string | null> {
   const data = await linearGql<{
     commentCreate: { comment?: { id: string } };
   }>(
-    `mutation CommentCreate($issueId: String!, $body: String!) {
-      commentCreate(input: { issueId: $issueId, body: $body }) {
+    `mutation CommentCreate($issueId: String!, $body: String!, $parentId: String) {
+      commentCreate(input: { issueId: $issueId, body: $body, parentId: $parentId }) {
         success
         comment { id }
       }
     }`,
-    { issueId, body },
+    { issueId, body, parentId },
     accessToken,
   );
 

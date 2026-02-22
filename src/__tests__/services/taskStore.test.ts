@@ -5,7 +5,13 @@ describe('taskStore', () => {
   let storeTask: typeof import('../../services/taskStore').storeTask;
   let getTask: typeof import('../../services/taskStore').getTask;
   let updateProgressCommentId: typeof import('../../services/taskStore').updateProgressCommentId;
+  let updateQuestionCommentId: typeof import('../../services/taskStore').updateQuestionCommentId;
   let consumeTask: typeof import('../../services/taskStore').consumeTask;
+  let findTaskByQuestionCommentId: typeof import('../../services/taskStore').findTaskByQuestionCommentId;
+  let storePendingTask: typeof import('../../services/taskStore').storePendingTask;
+  let getPendingTask: typeof import('../../services/taskStore').getPendingTask;
+  let consumePendingTask: typeof import('../../services/taskStore').consumePendingTask;
+  let removeTask: typeof import('../../services/taskStore').removeTask;
 
   beforeEach(async () => {
     vi.resetModules();
@@ -13,7 +19,13 @@ describe('taskStore', () => {
     storeTask = mod.storeTask;
     getTask = mod.getTask;
     updateProgressCommentId = mod.updateProgressCommentId;
+    updateQuestionCommentId = mod.updateQuestionCommentId;
     consumeTask = mod.consumeTask;
+    findTaskByQuestionCommentId = mod.findTaskByQuestionCommentId;
+    storePendingTask = mod.storePendingTask;
+    getPendingTask = mod.getPendingTask;
+    consumePendingTask = mod.consumePendingTask;
+    removeTask = mod.removeTask;
   });
 
   const record: TaskRecord = {
@@ -67,6 +79,45 @@ describe('taskStore', () => {
 
     it('returns undefined for an unknown taskId', () => {
       expect(consumeTask('unknown')).toBeUndefined();
+    });
+  });
+
+  describe('updateQuestionCommentId', () => {
+    it('updates questionCommentId on an existing record', () => {
+      storeTask('task-1', record);
+      updateQuestionCommentId('task-1', 'comment-42');
+      expect(getTask('task-1')?.questionCommentId).toBe('comment-42');
+    });
+  });
+
+  describe('findTaskByQuestionCommentId', () => {
+    it('finds a task by question comment id', () => {
+      storeTask('task-1', record);
+      updateQuestionCommentId('task-1', 'comment-42');
+      expect(findTaskByQuestionCommentId('comment-42')).toBe('task-1');
+    });
+  });
+
+  describe('pending task store', () => {
+    it('stores and consumes pending tasks by comment id', () => {
+      const pending = {
+        linearIssueId: 'issue-1',
+        workspaceId: 'ws-1',
+        prompt: 'Prompt',
+        attachments: [],
+      };
+      storePendingTask('comment-1', pending);
+      expect(getPendingTask('comment-1')).toEqual(pending);
+      expect(consumePendingTask('comment-1')).toEqual(pending);
+      expect(getPendingTask('comment-1')).toBeUndefined();
+    });
+  });
+
+  describe('removeTask', () => {
+    it('removes a task without returning it', () => {
+      storeTask('task-1', record);
+      removeTask('task-1');
+      expect(getTask('task-1')).toBeUndefined();
     });
   });
 
