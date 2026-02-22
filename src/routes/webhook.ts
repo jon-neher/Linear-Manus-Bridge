@@ -1,4 +1,3 @@
-import { createHmac, timingSafeEqual } from 'crypto';
 import { Router, Request, Response } from 'express';
 import {
   consumeTask,
@@ -13,6 +12,7 @@ import {
   findStateIdByName,
   updateIssueState,
 } from '../services/linearClient';
+import { verifyManusWebhookSignature } from '../services/manusWebhookVerifier';
 
 const router = Router();
 
@@ -69,59 +69,95 @@ interface ManusProgressPayload {
   };
 }
 
-function verifyManusSignature(rawBody: Buffer, signature: string): boolean {
-  const secret = process.env.MANUS_WEBHOOK_SECRET;
-  if (!secret) return true; // Skip verification when secret is not configured
+/**
+ * Build the full public URL for the current request.
+ * Railway (and most reverse proxies) set the X-Forwarded-Proto and Host headers,
+ * so we reconstruct the URL from those rather than trusting req.protocol which
+ * may report 'http' behind a TLS-terminating proxy.
+ *
+ * Falls back to SERVICE_BASE_URL env var if set, which is the recommended
+ * approach for Railway deployments.
+ */
+function buildWebhookUrl(req: Request): string {
+  const baseUrl = process.env.SERVICE_BASE_URL?.replace(/\/$/, '');
+  if (baseUrl) {
+    return `${baseUrl}${req.originalUrl}`;
+  }
+  const proto = (req.headers['x-forwarded-proto'] as string) ?? req.protocol ?? 'https';
+  const host = (req.headers['x-forwarded-host'] as string) ?? req.headers.host ?? 'localhost';
+  return `${proto}://${host}${req.originalUrl}`;
+}
 
-  const expected = `sha256=${createHmac('sha256', secret).update(rawBody).digest('hex')}`;
-  const expectedBuf = Buffer.from(expected);
-  const actualBuf = Buffer.from(signature);
+/**
+ * Verify the RSA-SHA256 signature on a Manus webhook request.
+ * Returns true if verification passes, false otherwise.
+ * Logs a warning and returns true (permissive) if the required headers are absent,
+ * allowing the service to operate without verification during initial setup.
+ */
+async function checkManusSignature(req: RawBodyRequest, res: Response): Promise<boolean> {
+  const signature = req.headers['x-webhook-signature'] as string | undefined;
+  const timestamp = req.headers['x-webhook-timestamp'] as string | undefined;
+  const rawBody = req.rawBody;
 
-  if (expectedBuf.length !== actualBuf.length) return false;
-  return timingSafeEqual(expectedBuf, actualBuf);
+  // If neither security header is present, Manus has not sent a signed request.
+  // This can happen during the initial webhook registration verification ping.
+  if (!signature && !timestamp) {
+    return true;
+  }
+
+  if (!signature || !timestamp) {
+    res.status(401).json({ error: 'Unauthorized: missing required signature headers' });
+    return false;
+  }
+
+  if (!rawBody) {
+    res.status(500).json({ error: 'Raw body unavailable for signature verification' });
+    return false;
+  }
+
+  const webhookUrl = buildWebhookUrl(req);
+  const valid = await verifyManusWebhookSignature(rawBody, signature, timestamp, webhookUrl);
+
+  if (!valid) {
+    res.status(401).json({ error: 'Unauthorized: invalid webhook signature' });
+    return false;
+  }
+
+  return true;
 }
 
 function formatProgressComment(detail: ManusProgressDetail, taskId: string): string {
   const message = detail.message?.trim() || 'Progress update received from Manus.';
   const lines: string[] = ['## Manus Progress', ''];
-
   if (detail.progress_type) {
     lines.push(`**Type:** ${detail.progress_type}`, '');
   }
-
   lines.push(message, '');
-  lines.push(`_Last update: ${new Date().toISOString()}_`, '');
   lines.push('---');
-  lines.push(`*Task ID: \`${taskId}\` — Progress update*`);
-
+  lines.push(`*Task ID: \`${taskId}\` — Linear-Manus Bridge*`);
   return lines.join('\n');
 }
 
-function formatStoppedComment(detail: ManusTaskDetail, statusLabel: string): string {
-  const lines: string[] = ['## Manus Task Result', ''];
-  lines.push(`**Status:** ${statusLabel}`, '');
-
-  if (detail.message) {
-    lines.push(detail.message, '');
+function formatStoppedComment(detail: ManusTaskDetail, outcome: string): string {
+  const lines: string[] = [`## Manus Task ${outcome}`, ''];
+  if (detail.task_title) {
+    lines.push(`**Task:** ${detail.task_title}`, '');
   }
-
-  if (detail.attachments?.length) {
-    lines.push('**Attachments:**');
-    for (const attachment of detail.attachments) {
-      lines.push(
-        `- [${attachment.file_name}](${attachment.url}) (${attachment.size_bytes} bytes)`,
-      );
+  if (detail.task_url) {
+    lines.push(`**View in Manus:** ${detail.task_url}`, '');
+  }
+  if (detail.message) {
+    lines.push(detail.message.trim(), '');
+  }
+  if (detail.attachments && detail.attachments.length > 0) {
+    lines.push('**Attachments:**', '');
+    for (const att of detail.attachments) {
+      lines.push(`- [${att.file_name}](${att.url})`);
     }
     lines.push('');
   }
-
-  if (detail.task_url) {
-    lines.push(`**Task URL:** ${detail.task_url}`, '');
-  }
-
   lines.push('---');
   lines.push(`*Task ID: \`${detail.task_id}\` — Processed by Linear-Manus Bridge*`);
-
   return lines.join('\n');
 }
 
@@ -149,19 +185,7 @@ function formatLegacyResult(
  * Receives Manus progress updates and updates a single Linear comment.
  */
 router.post('/manus/progress', async (req: RawBodyRequest, res: Response): Promise<void> => {
-  const signature = req.headers['x-manus-signature'] as string | undefined;
-  const rawBody = req.rawBody;
-
-  if (signature) {
-    if (!rawBody) {
-      res.status(500).json({ error: 'Raw body unavailable for signature verification' });
-      return;
-    }
-    if (!verifyManusSignature(rawBody, signature)) {
-      res.status(401).json({ error: 'Invalid webhook signature' });
-      return;
-    }
-  }
+  if (!(await checkManusSignature(req, res))) return;
 
   const payload = req.body as ManusProgressPayload;
   if (payload.event_type && payload.event_type !== 'task_progress') {
@@ -234,19 +258,7 @@ router.post('/manus/progress', async (req: RawBodyRequest, res: Response): Promi
  * Linear comment, and transitions the issue state accordingly.
  */
 router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> => {
-  const signature = req.headers['x-manus-signature'] as string | undefined;
-  const rawBody = req.rawBody;
-
-  if (signature) {
-    if (!rawBody) {
-      res.status(500).json({ error: 'Raw body unavailable for signature verification' });
-      return;
-    }
-    if (!verifyManusSignature(rawBody, signature)) {
-      res.status(401).json({ error: 'Invalid webhook signature' });
-      return;
-    }
-  }
+  if (!(await checkManusSignature(req, res))) return;
 
   const payload = req.body as ManusStoppedPayload;
   const detail = payload.task_detail;
