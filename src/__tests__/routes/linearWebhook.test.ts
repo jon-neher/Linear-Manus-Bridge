@@ -15,16 +15,10 @@ vi.mock('../../services/linearClient', () => ({
 }));
 vi.mock('../../services/manusClient', () => ({
   createTask: vi.fn(),
-  replyToTask: vi.fn(),
 }));
 vi.mock('../../services/taskStore', () => ({
   storeTask: vi.fn(),
   getTask: vi.fn(),
-  findTaskBySession: vi.fn(),
-}));
-vi.mock('../../services/linearAgentSession', () => ({
-  createAgentActivity: vi.fn(),
-  updateAgentSession: vi.fn(),
 }));
 
 function signBody(body: object): { rawBody: string; signature: string } {
@@ -48,7 +42,6 @@ describe('Linear webhook endpoint', () => {
     const { getValidToken } = await import('../../services/linearAuth');
     const { getIssueDetails, findStateIdByName } = await import('../../services/linearClient');
     const { createTask } = await import('../../services/manusClient');
-    const { createAgentActivity } = await import('../../services/linearAgentSession');
 
     (getValidToken as ReturnType<typeof vi.fn>).mockResolvedValue('mock-token');
     (getIssueDetails as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -63,7 +56,6 @@ describe('Linear webhook endpoint', () => {
       taskId: 'manus-123',
       taskUrl: 'https://manus.ai/tasks/123',
     });
-    (createAgentActivity as ReturnType<typeof vi.fn>).mockResolvedValue('activity-1');
 
     const mod = await import('../../index');
     app = mod.default;
@@ -102,11 +94,9 @@ describe('Linear webhook endpoint', () => {
   });
 
   it('AgentSessionEvent created: returns { ok: true, taskId }', async () => {
-    // Re-setup mocks since clearAllMocks runs in beforeEach
     const { getValidToken } = await import('../../services/linearAuth');
     const { getIssueDetails, findStateIdByName } = await import('../../services/linearClient');
     const { createTask } = await import('../../services/manusClient');
-    const { createAgentActivity, updateAgentSession } = await import('../../services/linearAgentSession');
 
     (getValidToken as ReturnType<typeof vi.fn>).mockResolvedValue('mock-token');
     (getIssueDetails as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -116,8 +106,6 @@ describe('Linear webhook endpoint', () => {
     (createTask as ReturnType<typeof vi.fn>).mockResolvedValue({
       taskId: 'manus-123', taskUrl: 'https://manus.ai/tasks/123',
     });
-    (createAgentActivity as ReturnType<typeof vi.fn>).mockResolvedValue('activity-1');
-    (updateAgentSession as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 
     const payload = {
       type: 'AgentSessionEvent',

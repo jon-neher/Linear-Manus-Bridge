@@ -6,7 +6,6 @@ describe('taskStore', () => {
   let getTask: typeof import('../../services/taskStore').getTask;
   let updateProgressCommentId: typeof import('../../services/taskStore').updateProgressCommentId;
   let consumeTask: typeof import('../../services/taskStore').consumeTask;
-  let findTaskBySession: typeof import('../../services/taskStore').findTaskBySession;
 
   beforeEach(async () => {
     vi.resetModules();
@@ -15,14 +14,12 @@ describe('taskStore', () => {
     getTask = mod.getTask;
     updateProgressCommentId = mod.updateProgressCommentId;
     consumeTask = mod.consumeTask;
-    findTaskBySession = mod.findTaskBySession;
   });
 
   const record: TaskRecord = {
     linearIssueId: 'issue-1',
     linearTeamId: 'team-1',
     workspaceId: 'ws-1',
-    agentSessionId: 'session-1',
   };
 
   describe('storeTask', () => {
@@ -73,16 +70,4 @@ describe('taskStore', () => {
     });
   });
 
-  describe('findTaskBySession', () => {
-    it('returns the taskId matching the agentSessionId', () => {
-      storeTask('task-1', record);
-      storeTask('task-2', { ...record, agentSessionId: 'session-2' });
-      expect(findTaskBySession('session-2')).toBe('task-2');
-    });
-
-    it('returns undefined when no session matches', () => {
-      storeTask('task-1', record);
-      expect(findTaskBySession('no-match')).toBeUndefined();
-    });
-  });
 });
