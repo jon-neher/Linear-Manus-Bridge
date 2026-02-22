@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto';
 import { Router, Request, Response } from 'express';
-import { saveTokenRecord } from '../services/linearAuth';
+import { saveTokenRecord, getTokenRecord, needsReAuthorization } from '../services/linearAuth';
 
 const router = Router();
 
@@ -166,6 +166,34 @@ router.get('/callback', async (req: Request, res: Response): Promise<void> => {
   });
 
   res.json({ ok: true, installationId });
+});
+
+/**
+ * GET /oauth/status/:workspaceId
+ * Returns the token status for a workspace, including whether re-authorization is needed.
+ */
+router.get('/status/:workspaceId', (req: Request, res: Response): void => {
+  const { workspaceId } = req.params;
+
+  if (needsReAuthorization(workspaceId)) {
+    res.status(401).json({
+      status: 'reauthorization_required',
+      installUrl: `/oauth/install`,
+    });
+    return;
+  }
+
+  const record = getTokenRecord(workspaceId);
+  if (!record) {
+    res.status(404).json({ status: 'not_found' });
+    return;
+  }
+
+  const expiresIn = Math.max(0, Math.floor((record.expiresAt - Date.now()) / 1000));
+  res.json({
+    status: 'active',
+    expiresInSeconds: expiresIn,
+  });
 });
 
 export default router;
