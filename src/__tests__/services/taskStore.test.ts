@@ -107,6 +107,7 @@ describe('taskStore', () => {
         workspaceId: 'ws-1',
         prompt: 'Prompt',
         attachments: [],
+        connectors: ['connector-1'],
       };
       storePendingTask('comment-1', pending);
       expect(getPendingTask('comment-1')).toEqual(pending);

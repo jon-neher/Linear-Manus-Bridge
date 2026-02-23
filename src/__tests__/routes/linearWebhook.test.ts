@@ -109,6 +109,7 @@ describe('Linear webhook endpoint', () => {
     const { getValidToken } = await import('../../services/linearAuth');
     const { getIssueDetails, postComment } = await import('../../services/linearClient');
     const { buildManusAttachments } = await import('../../services/manusAttachments');
+    const { storePendingTask } = await import('../../services/taskStore');
 
     (getValidToken as ReturnType<typeof vi.fn>).mockResolvedValue('mock-token');
     (getIssueDetails as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -136,6 +137,50 @@ describe('Linear webhook endpoint', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ ok: true, awaitingProfile: true });
+    expect(storePendingTask).toHaveBeenCalledWith('comment-1', expect.objectContaining({
+      connectors: ['bbb0df76-66bd-4a24-ae4f-2aac4750d90b'],
+    }));
+  });
+
+  it('AgentSessionEvent created: allows opt-out of GitHub connector', async () => {
+    const { getValidToken } = await import('../../services/linearAuth');
+    const { getIssueDetails, postComment } = await import('../../services/linearClient');
+    const { buildManusAttachments } = await import('../../services/manusAttachments');
+    const { storePendingTask } = await import('../../services/taskStore');
+
+    (getValidToken as ReturnType<typeof vi.fn>).mockResolvedValue('mock-token');
+    (getIssueDetails as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 'issue-1',
+      title: 'Test',
+      description: 'Desc',
+      teamId: 'team-1',
+      comments: [{ body: '/manus connectors=none' }],
+    });
+    (postComment as ReturnType<typeof vi.fn>).mockResolvedValue('comment-1');
+    (buildManusAttachments as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    const payload = {
+      type: 'AgentSessionEvent',
+      action: 'created',
+      organizationId: 'org-1',
+      agentSession: {
+        id: 'session-1',
+        issue: { id: 'issue-1', title: 'Test' },
+      },
+    };
+    const { rawBody, signature } = signBody(payload);
+
+    const res = await request(app)
+      .post('/linear/webhook')
+      .set('Content-Type', 'application/json')
+      .set('linear-signature', signature)
+      .send(rawBody);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, awaitingProfile: true });
+    expect(storePendingTask).toHaveBeenCalledWith('comment-1', expect.objectContaining({
+      connectors: [],
+    }));
   });
 
   it('AgentSessionEvent missing issue id: returns 400', async () => {
@@ -191,6 +236,7 @@ describe('Linear webhook endpoint', () => {
       agentSessionId: 'session-1',
       prompt: 'Prompt',
       attachments: [],
+      connectors: ['github-connector'],
     });
     (createTaskWithFallback as ReturnType<typeof vi.fn>).mockResolvedValue({
       taskId: 'task-1',
@@ -220,6 +266,9 @@ describe('Linear webhook endpoint', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ ok: true, taskId: 'task-1' });
+    expect(createTaskWithFallback).toHaveBeenCalledWith('Prompt', expect.objectContaining({
+      connectors: ['github-connector'],
+    }));
     expect(consumePendingTask).toHaveBeenCalledWith('comment-1');
     expect(storeTask).toHaveBeenCalled();
   });

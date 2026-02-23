@@ -183,6 +183,8 @@ function buildPromptFromDetails(
 }
 
 const PROFILE_OPTIONS = ['manus-1.6', 'manus-1.6-lite', 'manus-1.6-max'] as const;
+const GITHUB_CONNECTOR_ID = 'bbb0df76-66bd-4a24-ae4f-2aac4750d90b';
+const CONNECTORS_NONE_REGEX = /\/manus\s+connectors\s*=\s*none\b/i;
 
 function buildProfileSelectionComment(): string {
   return [
@@ -201,6 +203,12 @@ function parseProfileChoice(body: string | undefined | null): string | null {
   if (normalized.includes('manus-1.6-lite') || normalized.includes('lite')) return 'manus-1.6-lite';
   if (normalized.includes('manus-1.6')) return 'manus-1.6';
   return null;
+}
+
+function shouldDisableGithubConnector(
+  comments: Array<{ body: string }>,
+): boolean {
+  return comments.some((comment) => CONNECTORS_NONE_REGEX.test(comment.body));
 }
 
 // ─── Route ───────────────────────────────────────────────────────────────────
@@ -399,6 +407,10 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
       console.error('[linear/webhook] Failed to build attachments:', err);
     }
 
+    const connectors = issueDetails?.comments && shouldDisableGithubConnector(issueDetails.comments)
+      ? []
+      : [GITHUB_CONNECTOR_ID];
+
     let profileCommentId: string | null = null;
     try {
       profileCommentId = await postComment(
@@ -419,6 +431,7 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
         agentSessionId,
         prompt: prompt!,
         attachments,
+        connectors,
       });
     }
 
@@ -499,6 +512,7 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
           agentProfile: selectedProfile,
           attachments: pending.attachments,
           interactiveMode: true,
+          connectors: pending.connectors,
         });
         taskId = result.taskId;
         taskUrl = result.taskUrl;
@@ -679,6 +693,10 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
     console.error('[linear/webhook] Failed to build attachments:', err);
   }
 
+  const connectors = shouldDisableGithubConnector(issueDetails.comments)
+    ? []
+    : [GITHUB_CONNECTOR_ID];
+
   let profileCommentId: string | null = null;
   try {
     profileCommentId = await postComment(
@@ -698,6 +716,7 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
       workspaceId,
       prompt,
       attachments,
+      connectors,
     });
   }
 
