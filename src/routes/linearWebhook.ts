@@ -51,6 +51,7 @@ interface AgentSessionWebhookPayload {
 interface AgentActivityPayload {
   id?: string;
   body?: string;
+  content?: { type?: string; body?: string };
 }
 
 interface AgentSessionEventPayload {
@@ -344,7 +345,10 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
 
     // ── Handle "prompted" — user replied in the agent session ──────────────
     if (payload.action === 'prompted') {
-      const userMessage = payload.agentActivity?.body;
+      const userMessage =
+        payload.agentActivity?.content?.body ??
+        payload.agentActivity?.body ??
+        payload.promptContext;
       console.log('[linear/webhook] Handling prompted event', {
         agentSessionId,
         issueId,
@@ -352,6 +356,9 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
         userMessage: userMessage ?? '(empty)',
         agentActivityId: payload.agentActivity?.id ?? '(none)',
         hasAgentActivity: !!payload.agentActivity,
+        hasContentBody: !!payload.agentActivity?.content?.body,
+        hasBody: !!payload.agentActivity?.body,
+        hasPromptContext: !!payload.promptContext,
       });
       if (!userMessage || !agentSessionId || !workspaceId) {
         console.warn('[linear/webhook] prompted: missing required data', {
