@@ -37,7 +37,7 @@ async function linearGql<T>(
 
 // ─── Agent Activity types ────────────────────────────────────────────────────
 
-export type AgentActivityType = 'thought' | 'action' | 'response' | 'error';
+export type AgentActivityType = 'thought' | 'action' | 'response' | 'error' | 'elicitation';
 
 export interface ThoughtContent {
   type: 'thought';
@@ -61,16 +61,30 @@ export interface ErrorContent {
   body: string;
 }
 
+export interface ElicitationContent {
+  type: 'elicitation';
+  body: string;
+}
+
 export type AgentActivityContent =
   | ThoughtContent
   | ActionContent
   | ResponseContent
-  | ErrorContent;
+  | ErrorContent
+  | ElicitationContent;
+
+export type AgentActivitySignal = 'auth' | 'select';
+
+export interface AgentActivitySignalOptions {
+  signal?: AgentActivitySignal;
+  signalMetadata?: Record<string, unknown>;
+}
 
 export async function createAgentActivity(
   agentSessionId: string,
   content: AgentActivityContent,
   accessToken: string,
+  options: AgentActivitySignalOptions = {},
 ): Promise<string | null> {
   const data = await linearGql<{
     agentActivityCreate: { success: boolean; agentActivity?: { id: string } };
@@ -85,6 +99,8 @@ export async function createAgentActivity(
       input: {
         agentSessionId,
         content,
+        signal: options.signal,
+        signalMetadata: options.signalMetadata,
       },
     },
     accessToken,

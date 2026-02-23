@@ -17,6 +17,7 @@ export interface PendingTaskRecord {
   prompt: string;
   attachments: ManusAttachment[];
   connectors?: string[];
+  profileActivityId?: string | null;
 }
 
 // In-memory task store mapping Manus task IDs to Linear issue context.
@@ -78,6 +79,17 @@ export function storePendingTask(commentId: string, record: PendingTaskRecord): 
 
 export function getPendingTask(commentId: string): PendingTaskRecord | undefined {
   return pendingTaskStore.get(commentId);
+}
+
+export function findPendingTaskBySession(
+  agentSessionId: string,
+): { commentId: string; record: PendingTaskRecord } | undefined {
+  for (const [commentId, record] of pendingTaskStore.entries()) {
+    if (record.agentSessionId === agentSessionId) {
+      return { commentId, record };
+    }
+  }
+  return undefined;
 }
 
 export function consumePendingTask(commentId: string): PendingTaskRecord | undefined {
