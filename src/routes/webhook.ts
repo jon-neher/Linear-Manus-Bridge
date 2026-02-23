@@ -268,10 +268,9 @@ router.post('/manus/progress', async (req: RawBodyRequest, res: Response): Promi
   if (sessionId) {
     const progressMessage = detail?.message?.trim() || 'Working…';
     await createAgentActivity(sessionId, {
-      type: 'action',
-      action: detail?.progress_type === 'plan_update' ? 'Plan update' : 'Working',
-      result: progressMessage,
-    }, accessToken).catch((err) =>
+      type: 'thought',
+      body: progressMessage,
+    }, accessToken, { ephemeral: true }).catch((err) =>
       console.error('[webhook/manus/progress] Failed to emit activity:', err),
     );
   }
@@ -341,10 +340,9 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
         const accessToken = await getValidToken(stored.workspaceId);
         const progressMessage = progressDetail?.message?.trim() || 'Working…';
         await createAgentActivity(stored.agentSessionId, {
-          type: 'action',
-          action: progressDetail?.progress_type === 'plan_update' ? 'Plan update' : 'Working',
-          result: progressMessage,
-        }, accessToken).catch(() => {});
+          type: 'thought',
+          body: progressMessage,
+        }, accessToken, { ephemeral: true }).catch(() => {});
       } catch (err) {
         console.error('[webhook/manus] task_progress activity failed:', err);
       }
@@ -437,10 +435,11 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
   const sessionId = stored?.agentSessionId;
   if (sessionId) {
     if (stopReason === 'ask') {
-      // Manus is asking for input — emit a response so the user sees the question
+      // Manus is asking for input — emit an elicitation so Linear keeps the session
+      // open for user replies (a "response" would mark the session as complete)
       const question = detail?.message?.trim() || 'Manus needs more information to continue.';
       await createAgentActivity(sessionId, {
-        type: 'response',
+        type: 'elicitation',
         body: question,
       }, accessToken).catch((err) =>
         console.error('[webhook/manus] Failed to emit ask activity:', err),
