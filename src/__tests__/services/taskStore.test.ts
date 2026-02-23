@@ -1,7 +1,11 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import type { TaskRecord } from '../../services/taskStore';
 
 describe('taskStore', () => {
+  let tempDir: string;
   let storeTask: typeof import('../../services/taskStore').storeTask;
   let getTask: typeof import('../../services/taskStore').getTask;
   let updateProgressCommentId: typeof import('../../services/taskStore').updateProgressCommentId;
@@ -17,6 +21,8 @@ describe('taskStore', () => {
   let findTaskBySession: typeof import('../../services/taskStore').findTaskBySession;
 
   beforeEach(async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'task-store-test-'));
+    process.env.DATA_DIR = tempDir;
     vi.resetModules();
     const mod = await import('../../services/taskStore');
     storeTask = mod.storeTask;
@@ -32,6 +38,10 @@ describe('taskStore', () => {
     findPendingTaskByIssue = mod.findPendingTaskByIssue;
     removeTask = mod.removeTask;
     findTaskBySession = mod.findTaskBySession;
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
   });
 
   const record: TaskRecord = {
