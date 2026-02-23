@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 describe('manusClient', () => {
   const TEST_BASE_URL = 'https://test-manus.example.com';
-  let createTask: typeof import('../../services/manusClient').createTask;
+  let createTaskWithFallback: typeof import('../../services/manusClient').createTaskWithFallback;
+  let createFileRecord: typeof import('../../services/manusClient').createFileRecord;
+  let uploadFileToManus: typeof import('../../services/manusClient').uploadFileToManus;
   let replyToTask: typeof import('../../services/manusClient').replyToTask;
 
   beforeEach(async () => {
@@ -11,7 +13,9 @@ describe('manusClient', () => {
 
     vi.resetModules();
     const mod = await import('../../services/manusClient');
-    createTask = mod.createTask;
+    createTaskWithFallback = mod.createTaskWithFallback;
+    createFileRecord = mod.createFileRecord;
+    uploadFileToManus = mod.uploadFileToManus;
     replyToTask = mod.replyToTask;
   });
 
@@ -19,7 +23,7 @@ describe('manusClient', () => {
     vi.unstubAllGlobals();
   });
 
-  describe('createTask', () => {
+  describe('createTaskWithFallback', () => {
     it('returns taskId and taskUrl on success', async () => {
       vi.stubGlobal(
         'fetch',
@@ -29,15 +33,22 @@ describe('manusClient', () => {
         }),
       );
 
-      const result = await createTask('Do something');
+      const result = await createTaskWithFallback('Do something');
 
-      expect(result).toEqual({ taskId: 'task-123', taskUrl: 'https://manus.ai/task/123' });
+      expect(result).toEqual({
+        taskId: 'task-123',
+        taskUrl: 'https://manus.ai/task/123',
+        usedProfile: 'manus-1.6',
+        fallbackToLite: false,
+      });
     });
 
     it('throws when MANUS_API_KEY is not set', async () => {
       delete process.env.MANUS_API_KEY;
 
-      await expect(createTask('Do something')).rejects.toThrow('MANUS_API_KEY is not configured');
+      await expect(createTaskWithFallback('Do something')).rejects.toThrow(
+        'MANUS_API_KEY is not configured',
+      );
     });
 
     it('throws with status on non-ok response', async () => {
@@ -50,7 +61,9 @@ describe('manusClient', () => {
         }),
       );
 
-      await expect(createTask('Do something')).rejects.toThrow('Manus task creation failed (500)');
+      await expect(createTaskWithFallback('Do something')).rejects.toThrow(
+        'Manus task creation failed (500)',
+      );
     });
 
     it('throws when response is missing task_id', async () => {
@@ -62,7 +75,9 @@ describe('manusClient', () => {
         }),
       );
 
-      await expect(createTask('Do something')).rejects.toThrow('Manus response missing task_id');
+      await expect(createTaskWithFallback('Do something')).rejects.toThrow(
+        'Manus response missing task_id',
+      );
     });
 
     it('sends correct headers and body', async () => {
@@ -72,7 +87,7 @@ describe('manusClient', () => {
       });
       vi.stubGlobal('fetch', mockFetch);
 
-      await createTask('Build a widget', { agentProfile: 'custom-agent', taskMode: 'plan' });
+      await createTaskWithFallback('Build a widget', { agentProfile: 'custom-agent', taskMode: 'plan' });
 
       expect(mockFetch).toHaveBeenCalledOnce();
       const [url, init] = mockFetch.mock.calls[0];
@@ -90,6 +105,54 @@ describe('manusClient', () => {
         taskMode: 'plan',
         interactiveMode: true,
       });
+    });
+
+    it('falls back to lite on credit errors', async () => {
+      const mockFetch = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 402,
+          text: async () => 'Insufficient credits',
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ task_id: 'task-lite' }),
+        });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const result = await createTaskWithFallback('Test', { agentProfile: 'manus-1.6-max' });
+      expect(result.usedProfile).toBe('manus-1.6-lite');
+      expect(result.fallbackToLite).toBe(true);
+    });
+  });
+
+  describe('createFileRecord', () => {
+    it('returns file metadata', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ id: 'file-1', upload_url: 'https://upload' }),
+        }),
+      );
+
+      const result = await createFileRecord('data.txt');
+      expect(result.id).toBe('file-1');
+      expect(result.upload_url).toBe('https://upload');
+    });
+  });
+
+  describe('uploadFileToManus', () => {
+    it('uploads file content via PUT', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+      vi.stubGlobal('fetch', mockFetch);
+
+      await uploadFileToManus('https://upload', Buffer.from('data'), 'text/plain');
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://upload',
+        expect.objectContaining({ method: 'PUT' }),
+      );
     });
   });
 

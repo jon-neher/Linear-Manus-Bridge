@@ -4,6 +4,7 @@ import {
   getTask,
   storeTask,
   updateProgressCommentId,
+  updateQuestionCommentId,
 } from '../services/taskStore';
 import { getValidToken } from '../services/linearAuth';
 import {
@@ -363,7 +364,8 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
     return;
   }
 
-  const stored = consumeTask(taskId);
+  const existing = getTask(taskId);
+  const stored = existing ?? undefined;
   const issueId = stored?.linearIssueId ?? payload.metadata?.linear_issue_id;
   const teamId = stored?.linearTeamId ?? payload.metadata?.linear_team_id;
   const workspaceId = stored?.workspaceId ?? payload.metadata?.workspace_id;
@@ -408,7 +410,10 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
   }
 
   try {
-    await postComment(issueId, commentBody, accessToken);
+    const commentId = await postComment(issueId, commentBody, accessToken);
+    if (stopReason === 'ask' && commentId) {
+      updateQuestionCommentId(taskId, commentId);
+    }
   } catch (err) {
     console.error('Failed to post Linear comment:', err);
     res.status(502).json({ error: `Comment failed: ${(err as Error).message}` });
@@ -456,6 +461,10 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
         console.error('[webhook/manus] Failed to emit response activity:', err),
       );
     }
+  }
+
+  if (stopReason !== 'ask') {
+    consumeTask(taskId);
   }
 
   res.json({ ok: true });

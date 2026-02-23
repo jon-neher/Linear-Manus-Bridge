@@ -81,6 +81,16 @@ describe('linearClient', () => {
       expectGqlCall(globalThis.fetch, { issueId: 'issue-1', body: 'hello' });
     });
 
+    it('includes parentId when provided', async () => {
+      globalThis.fetch = mockFetchJson({
+        commentCreate: { success: true, comment: { id: 'comment-2' } },
+      });
+
+      const result = await postComment('issue-1', 'reply', TOKEN, 'parent-1');
+      expect(result).toBe('comment-2');
+      expectGqlCall(globalThis.fetch, { parentId: 'parent-1' });
+    });
+
     it('returns null when comment is not present', async () => {
       globalThis.fetch = mockFetchJson({
         commentCreate: { success: true },

@@ -4,10 +4,19 @@ import { getValidToken } from '../services/linearAuth';
 import {
   findStateIdByName,
   getIssueDetails,
+  postComment,
   updateIssueState,
 } from '../services/linearClient';
-import { createTask, replyToTask } from '../services/manusClient';
-import { storeTask, getTask } from '../services/taskStore';
+import { buildManusAttachments } from '../services/manusAttachments';
+import { createTaskWithFallback, replyToTask } from '../services/manusClient';
+import {
+  consumePendingTask,
+  findTaskByQuestionCommentId,
+  getPendingTask,
+  getTask,
+  storePendingTask,
+  storeTask,
+} from '../services/taskStore';
 import {
   createAgentActivity,
   updateAgentSession,
@@ -72,6 +81,22 @@ interface LinearIssuePayload {
   data?: Record<string, unknown>;
   organizationId?: string;
   updatedFields?: string[];
+}
+
+interface LinearCommentData {
+  id?: string;
+  body?: string;
+  issueId?: string;
+  parentId?: string | null;
+  parent?: { id?: string } | null;
+}
+
+interface LinearCommentPayload {
+  type?: string;
+  action?: string;
+  data?: LinearCommentData;
+  organizationId?: string;
+  actor?: { id?: string; type?: string; name?: string } | null;
 }
 
 // ─── Signature verification ──────────────────────────────────────────────────
@@ -155,6 +180,27 @@ function buildPromptFromDetails(
     }
   }
   return lines.join('\n');
+}
+
+const PROFILE_OPTIONS = ['manus-1.6', 'manus-1.6-lite', 'manus-1.6-max'] as const;
+
+function buildProfileSelectionComment(): string {
+  return [
+    '## Manus profile selection',
+    '',
+    'Please reply in this thread with one of the following options:',
+    '',
+    PROFILE_OPTIONS.map((option) => `- ${'`'}${option}${'`'}`).join('\n'),
+  ].join('\n');
+}
+
+function parseProfileChoice(body: string | undefined | null): string | null {
+  if (!body) return null;
+  const normalized = body.toLowerCase();
+  if (normalized.includes('manus-1.6-max') || normalized.includes('max')) return 'manus-1.6-max';
+  if (normalized.includes('manus-1.6-lite') || normalized.includes('lite')) return 'manus-1.6-lite';
+  if (normalized.includes('manus-1.6')) return 'manus-1.6';
+  return null;
 }
 
 // ─── Route ───────────────────────────────────────────────────────────────────
@@ -315,22 +361,25 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
     let prompt: string;
     let teamId: string | undefined =
       payload.agentSession.issue?.teamId ?? payload.agentSession.issue?.team?.id;
+    let issueDetails;
 
     if (payload.promptContext) {
       prompt = payload.promptContext;
-      if (!teamId) {
-        try {
-          const details = await getIssueDetails(issueId, accessToken);
-          teamId = details.teamId ?? undefined;
-        } catch {
-          // Non-fatal — state transition will be skipped.
-        }
+      try {
+        issueDetails = await getIssueDetails(issueId, accessToken);
+        teamId = issueDetails.teamId ?? teamId;
+      } catch {
+        // Non-fatal — attachments may be missing.
       }
     } else {
       try {
-        const details = await getIssueDetails(issueId, accessToken);
-        teamId = details.teamId ?? teamId;
-        prompt = buildPromptFromDetails(details.title, details.description, details.comments);
+        issueDetails = await getIssueDetails(issueId, accessToken);
+        teamId = issueDetails.teamId ?? teamId;
+        prompt = buildPromptFromDetails(
+          issueDetails.title,
+          issueDetails.description,
+          issueDetails.comments,
+        );
       } catch (err) {
         if (agentSessionId) {
           await createAgentActivity(agentSessionId, {
@@ -343,70 +392,218 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
       }
     }
 
-    if (teamId) {
-      const inProgressState = process.env.LINEAR_IN_PROGRESS_STATE ?? 'In Progress';
-      try {
-        const stateId = await findStateIdByName(teamId, inProgressState, accessToken);
-        if (stateId) {
-          await updateIssueState(issueId, stateId, accessToken);
-        } else {
-          console.warn(`State "${inProgressState}" not found for team ${teamId}`);
-        }
-      } catch (err) {
-        console.error('Failed to update issue state:', err);
-      }
+    let attachments = [] as Awaited<ReturnType<typeof buildManusAttachments>>;
+    try {
+      attachments = await buildManusAttachments(issueDetails ?? null);
+    } catch (err) {
+      console.error('[linear/webhook] Failed to build attachments:', err);
     }
 
-    let taskId: string;
-    let taskUrl: string | undefined;
+    let profileCommentId: string | null = null;
     try {
-      const result = await createTask(prompt!);
-      taskId = result.taskId;
-      taskUrl = result.taskUrl;
+      profileCommentId = await postComment(
+        issueId,
+        buildProfileSelectionComment(),
+        accessToken,
+      );
     } catch (err) {
-      if (agentSessionId) {
-        await createAgentActivity(agentSessionId, {
-          type: 'error',
-          body: `Failed to create Manus task: ${(err as Error).message}`,
-        }, accessToken).catch(() => {});
-      }
       res.status(502).json({ error: (err as Error).message });
       return;
     }
 
-    storeTask(taskId, {
-      linearIssueId: issueId,
-      linearTeamId: teamId,
-      workspaceId,
-      agentSessionId,
-    });
-    console.log('[linear/webhook] Task created successfully:', taskId);
+    if (profileCommentId) {
+      storePendingTask(profileCommentId, {
+        linearIssueId: issueId,
+        linearTeamId: teamId,
+        workspaceId,
+        agentSessionId,
+        prompt: prompt!,
+        attachments,
+      });
+    }
 
-    // Update agent session with Manus task URL and emit action activity
     if (agentSessionId) {
-      if (taskUrl) {
-        await updateAgentSession(agentSessionId, {
-          externalUrls: [{ label: 'View in Manus', url: taskUrl }],
-        }, accessToken).catch((err) =>
-          console.error('[linear/webhook] Failed to set external URL:', err),
-        );
-      }
-
       await createAgentActivity(agentSessionId, {
-        type: 'action',
-        action: 'Created Manus task',
-        parameter: taskId,
-        result: taskUrl ? `[View in Manus](${taskUrl})` : 'Task created successfully',
+        type: 'thought',
+        body: 'Waiting for profile selection before starting Manus task…',
       }, accessToken).catch((err) =>
-        console.error('[linear/webhook] Failed to emit task-created activity:', err),
+        console.error('[linear/webhook] Failed to emit wait activity:', err),
       );
     }
 
-    res.json({ ok: true, taskId });
+    res.json({ ok: true, awaitingProfile: true });
     return;
   }
 
-  // ── Path 2: Legacy Issue assignment ───────────────────────────────────────
+  // ── Path 2: Comment replies (profile selection or interactive replies) ───
+  if (eventType === 'Comment') {
+    const payload = body as LinearCommentPayload;
+    if (payload.action !== 'create') {
+      res.json({ ok: true, ignored: true, reason: `action=${payload.action}` });
+      return;
+    }
+
+    const comment = payload.data;
+    const parentId = comment?.parentId ?? comment?.parent?.id;
+    if (!parentId) {
+      res.json({ ok: true, ignored: true, reason: 'no parentId' });
+      return;
+    }
+
+    const pending = getPendingTask(parentId);
+    if (pending) {
+      const selectedProfile = parseProfileChoice(comment?.body);
+      let accessToken: string;
+      try {
+        accessToken = await getValidToken(pending.workspaceId);
+      } catch (err) {
+        res.status(503).json({ error: (err as Error).message });
+        return;
+      }
+
+      if (!selectedProfile) {
+        await postComment(
+          pending.linearIssueId,
+          buildProfileSelectionComment(),
+          accessToken,
+          parentId,
+        ).catch(() => {});
+        res.json({ ok: true, awaitingProfile: true });
+        return;
+      }
+
+      consumePendingTask(parentId);
+
+      if (pending.linearTeamId) {
+        const inProgressState = process.env.LINEAR_IN_PROGRESS_STATE ?? 'In Progress';
+        try {
+          const stateId = await findStateIdByName(
+            pending.linearTeamId,
+            inProgressState,
+            accessToken,
+          );
+          if (stateId) {
+            await updateIssueState(pending.linearIssueId, stateId, accessToken);
+          }
+        } catch (err) {
+          console.error('Failed to update issue state:', err);
+        }
+      }
+
+      let taskId: string;
+      let taskUrl: string | undefined;
+      let usedProfile = selectedProfile;
+      let fallbackToLite = false;
+      try {
+        const result = await createTaskWithFallback(pending.prompt, {
+          agentProfile: selectedProfile,
+          attachments: pending.attachments,
+          interactiveMode: true,
+        });
+        taskId = result.taskId;
+        taskUrl = result.taskUrl;
+        usedProfile = result.usedProfile;
+        fallbackToLite = result.fallbackToLite;
+      } catch (err) {
+        await postComment(
+          pending.linearIssueId,
+          `Manus task creation failed: ${(err as Error).message}`,
+          accessToken,
+        ).catch(() => {});
+        res.status(502).json({ error: (err as Error).message });
+        return;
+      }
+
+      storeTask(taskId, {
+        linearIssueId: pending.linearIssueId,
+        linearTeamId: pending.linearTeamId,
+        workspaceId: pending.workspaceId,
+        agentSessionId: pending.agentSessionId,
+      });
+
+      if (pending.agentSessionId) {
+        if (taskUrl) {
+          await updateAgentSession(pending.agentSessionId, {
+            externalUrls: [{ label: 'View in Manus', url: taskUrl }],
+          }, accessToken).catch(() => {});
+        }
+
+        const profileNote = fallbackToLite
+          ? ` (fallback to ${usedProfile} due to credits)`
+          : '';
+        await createAgentActivity(pending.agentSessionId, {
+          type: 'action',
+          action: 'Created Manus task',
+          parameter: taskId,
+          result: `Profile: ${usedProfile}${profileNote}`,
+        }, accessToken).catch(() => {});
+      }
+
+      res.json({ ok: true, taskId });
+      return;
+    }
+
+    const questionTaskId = findTaskByQuestionCommentId(parentId);
+    if (questionTaskId) {
+      const record = getTask(questionTaskId);
+      if (!record) {
+        res.status(404).json({ error: 'Task not found for question comment' });
+        return;
+      }
+
+      const replyBody = comment?.body?.trim();
+      if (!replyBody) {
+        res.json({ ok: true, ignored: true, reason: 'empty reply' });
+        return;
+      }
+
+      let accessToken: string;
+      try {
+        accessToken = await getValidToken(record.workspaceId);
+      } catch (err) {
+        res.status(503).json({ error: (err as Error).message });
+        return;
+      }
+
+      if (record.linearTeamId) {
+        const inProgressState = process.env.LINEAR_IN_PROGRESS_STATE ?? 'In Progress';
+        try {
+          const stateId = await findStateIdByName(
+            record.linearTeamId,
+            inProgressState,
+            accessToken,
+          );
+          if (stateId) {
+            await updateIssueState(record.linearIssueId, stateId, accessToken);
+          }
+        } catch (err) {
+          console.error('Failed to update issue state:', err);
+        }
+      }
+
+      if (record.agentSessionId) {
+        await createAgentActivity(record.agentSessionId, {
+          type: 'thought',
+          body: 'Forwarding your reply to Manus…',
+        }, accessToken).catch(() => {});
+      }
+
+      try {
+        await replyToTask(questionTaskId, replyBody);
+      } catch (err) {
+        res.status(502).json({ error: (err as Error).message });
+        return;
+      }
+
+      res.json({ ok: true, forwarded: true });
+      return;
+    }
+
+    res.json({ ok: true, ignored: true });
+    return;
+  }
+
+  // ── Path 3: Legacy Issue assignment ───────────────────────────────────────
   const legacyPayload = body as LinearIssuePayload;
   const legacyType = legacyPayload.type?.toLowerCase();
 
@@ -468,19 +665,6 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
   }
 
   const teamId = issueDetails.teamId ?? issueData?.team?.id ?? issueData?.teamId;
-  if (teamId) {
-    const inProgressState = process.env.LINEAR_IN_PROGRESS_STATE ?? 'In Progress';
-    try {
-      const stateId = await findStateIdByName(teamId, inProgressState, accessToken);
-      if (stateId) {
-        await updateIssueState(issueId, stateId, accessToken);
-      } else {
-        console.warn(`State "${inProgressState}" not found for team ${teamId}`);
-      }
-    } catch (err) {
-      console.error('Failed to update issue state:', err);
-    }
-  }
 
   const prompt = buildPromptFromDetails(
     issueDetails.title,
@@ -488,17 +672,36 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
     issueDetails.comments,
   );
 
-  let taskId: string;
+  let attachments = [] as Awaited<ReturnType<typeof buildManusAttachments>>;
   try {
-    const result = await createTask(prompt);
-    taskId = result.taskId;
+    attachments = await buildManusAttachments(issueDetails ?? null);
+  } catch (err) {
+    console.error('[linear/webhook] Failed to build attachments:', err);
+  }
+
+  let profileCommentId: string | null = null;
+  try {
+    profileCommentId = await postComment(
+      issueId,
+      buildProfileSelectionComment(),
+      accessToken,
+    );
   } catch (err) {
     res.status(502).json({ error: (err as Error).message });
     return;
   }
 
-  storeTask(taskId, { linearIssueId: issueId, linearTeamId: teamId, workspaceId });
-  res.json({ ok: true, taskId });
+  if (profileCommentId) {
+    storePendingTask(profileCommentId, {
+      linearIssueId: issueId,
+      linearTeamId: teamId ?? undefined,
+      workspaceId,
+      prompt,
+      attachments,
+    });
+  }
+
+  res.json({ ok: true, awaitingProfile: true });
 });
 
 export default router;
