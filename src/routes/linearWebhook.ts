@@ -344,9 +344,21 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
 
     // ── Handle "prompted" — user replied in the agent session ──────────────
     if (payload.action === 'prompted') {
-      console.log('[linear/webhook] Handling prompted event');
       const userMessage = payload.agentActivity?.body;
+      console.log('[linear/webhook] Handling prompted event', {
+        agentSessionId,
+        issueId,
+        workspaceId,
+        userMessage: userMessage ?? '(empty)',
+        agentActivityId: payload.agentActivity?.id ?? '(none)',
+        hasAgentActivity: !!payload.agentActivity,
+      });
       if (!userMessage || !agentSessionId || !workspaceId) {
+        console.warn('[linear/webhook] prompted: missing required data', {
+          hasUserMessage: !!userMessage,
+          hasAgentSessionId: !!agentSessionId,
+          hasWorkspaceId: !!workspaceId,
+        });
         res.json({ ok: true, ignored: true, reason: 'prompted missing data' });
         return;
       }
@@ -354,14 +366,25 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
       let accessToken: string;
       try {
         accessToken = await getValidToken(workspaceId);
+        console.log('[linear/webhook] prompted: token fetched OK');
       } catch (err) {
+        console.error('[linear/webhook] prompted: getValidToken failed:', (err as Error).message);
         res.status(503).json({ error: (err as Error).message });
         return;
       }
 
       const pendingSelection = findPendingTaskBySession(agentSessionId);
+      console.log('[linear/webhook] prompted: pendingSelection lookup', {
+        found: !!pendingSelection,
+        pendingKey: pendingSelection?.commentId ?? '(none)',
+        pendingIssueId: pendingSelection?.record.linearIssueId ?? '(none)',
+      });
       if (pendingSelection) {
         const selectedProfile = parseProfileChoice(userMessage);
+        console.log('[linear/webhook] prompted: profile selection', {
+          userMessage,
+          parsedProfile: selectedProfile ?? '(no match)',
+        });
         if (!selectedProfile) {
           await createAgentActivity(agentSessionId, {
             type: 'response',
@@ -372,6 +395,7 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
         }
 
         consumePendingTask(pendingSelection.commentId);
+        console.log('[linear/webhook] prompted: consumed pending task, creating Manus task with profile:', selectedProfile);
 
         try {
           const result = await finalizePendingTask(
@@ -379,9 +403,16 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
             selectedProfile,
             accessToken,
           );
+          console.log('[linear/webhook] prompted: Manus task created', {
+            taskId: result.taskId,
+            taskUrl: result.taskUrl,
+            usedProfile: result.usedProfile,
+            fallbackToLite: result.fallbackToLite,
+          });
           res.json({ ok: true, taskId: result.taskId });
         } catch (err) {
           const message = (err as Error).message;
+          console.error('[linear/webhook] prompted: finalizePendingTask failed:', message);
           await createAgentActivity(agentSessionId, {
             type: 'error',
             body: `Manus task creation failed: ${message}`,
@@ -398,6 +429,10 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
 
       // Find the Manus task ID associated with this session
       const manusTaskId = findTaskBySession(agentSessionId);
+      console.log('[linear/webhook] prompted: task lookup for multi-turn', {
+        agentSessionId,
+        manusTaskId: manusTaskId ?? '(not found)',
+      });
 
       if (!manusTaskId) {
         console.error('[linear/webhook] No Manus task found for session:', agentSessionId);
@@ -417,7 +452,7 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
 
       try {
         await replyToTask(manusTaskId, userMessage);
-        console.log('[linear/webhook] Replied to Manus task:', manusTaskId);
+        console.log('[linear/webhook] prompted: replied to Manus task:', manusTaskId);
       } catch (err) {
         await createAgentActivity(agentSessionId, {
           type: 'error',
@@ -534,6 +569,16 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
       }
     }
 
+    console.log('[linear/webhook] created: storing pending task', {
+      key: issueId,
+      agentSessionId: agentSessionId ?? '(none)',
+      teamId: teamId ?? '(none)',
+      workspaceId,
+      promptLength: prompt!.length,
+      attachmentCount: attachments.length,
+      connectorCount: connectors.length,
+      profileActivityId: profileActivityId ?? '(none)',
+    });
     storePendingTask(issueId, {
       linearIssueId: issueId,
       linearTeamId: teamId,
