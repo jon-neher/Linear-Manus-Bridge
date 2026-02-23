@@ -32,6 +32,7 @@ vi.mock('../../services/taskStore', () => ({
   getPendingTask: vi.fn(),
   consumePendingTask: vi.fn(),
   findTaskByQuestionCommentId: vi.fn(),
+  findTaskBySession: vi.fn(),
 }));
 
 function signBody(body: object): { rawBody: string; signature: string } {
@@ -221,5 +222,81 @@ describe('Linear webhook endpoint', () => {
     expect(res.body).toMatchObject({ ok: true, taskId: 'task-1' });
     expect(consumePendingTask).toHaveBeenCalledWith('comment-1');
     expect(storeTask).toHaveBeenCalled();
+  });
+
+  it('AgentSessionEvent prompted: forwards reply to Manus', async () => {
+    const { getValidToken } = await import('../../services/linearAuth');
+    const { replyToTask } = await import('../../services/manusClient');
+    const { findTaskBySession } = await import('../../services/taskStore');
+
+    (getValidToken as ReturnType<typeof vi.fn>).mockResolvedValue('mock-token');
+    (findTaskBySession as ReturnType<typeof vi.fn>).mockReturnValue('manus-123');
+    (replyToTask as ReturnType<typeof vi.fn>).mockResolvedValue({
+      taskId: 'manus-123', taskUrl: 'https://manus.ai/tasks/123',
+    });
+
+    const payload = {
+      type: 'AgentSessionEvent',
+      action: 'prompted',
+      organizationId: 'org-1',
+      agentSession: { id: 'session-1' },
+      agentActivity: { id: 'activity-1', body: 'Please add tests' },
+    };
+    const { rawBody, signature } = signBody(payload);
+
+    const res = await request(app)
+      .post('/linear/webhook')
+      .set('Content-Type', 'application/json')
+      .set('linear-signature', signature)
+      .send(rawBody);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, forwarded: true });
+    expect(replyToTask).toHaveBeenCalledWith('manus-123', 'Please add tests');
+  });
+
+  it('AgentSessionEvent prompted: returns 422 when no Manus task found', async () => {
+    const { getValidToken } = await import('../../services/linearAuth');
+    const { findTaskBySession } = await import('../../services/taskStore');
+
+    (getValidToken as ReturnType<typeof vi.fn>).mockResolvedValue('mock-token');
+    (findTaskBySession as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+
+    const payload = {
+      type: 'AgentSessionEvent',
+      action: 'prompted',
+      organizationId: 'org-1',
+      agentSession: { id: 'session-1' },
+      agentActivity: { id: 'activity-1', body: 'Please add tests' },
+    };
+    const { rawBody, signature } = signBody(payload);
+
+    const res = await request(app)
+      .post('/linear/webhook')
+      .set('Content-Type', 'application/json')
+      .set('linear-signature', signature)
+      .send(rawBody);
+
+    expect(res.status).toBe(422);
+  });
+
+  it('AgentSessionEvent prompted: ignores when missing data', async () => {
+    const payload = {
+      type: 'AgentSessionEvent',
+      action: 'prompted',
+      organizationId: 'org-1',
+      agentSession: { id: 'session-1' },
+      // no agentActivity.body
+    };
+    const { rawBody, signature } = signBody(payload);
+
+    const res = await request(app)
+      .post('/linear/webhook')
+      .set('Content-Type', 'application/json')
+      .set('linear-signature', signature)
+      .send(rawBody);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, ignored: true });
   });
 });

@@ -5,6 +5,7 @@ describe('manusClient', () => {
   let createTaskWithFallback: typeof import('../../services/manusClient').createTaskWithFallback;
   let createFileRecord: typeof import('../../services/manusClient').createFileRecord;
   let uploadFileToManus: typeof import('../../services/manusClient').uploadFileToManus;
+  let replyToTask: typeof import('../../services/manusClient').replyToTask;
 
   beforeEach(async () => {
     process.env.MANUS_API_BASE_URL = TEST_BASE_URL;
@@ -15,6 +16,7 @@ describe('manusClient', () => {
     createTaskWithFallback = mod.createTaskWithFallback;
     createFileRecord = mod.createFileRecord;
     uploadFileToManus = mod.uploadFileToManus;
+    replyToTask = mod.replyToTask;
   });
 
   afterEach(() => {
@@ -101,6 +103,7 @@ describe('manusClient', () => {
         prompt: 'Build a widget',
         agentProfile: 'custom-agent',
         taskMode: 'plan',
+        interactiveMode: true,
       });
     });
 
@@ -150,6 +153,38 @@ describe('manusClient', () => {
         'https://upload',
         expect.objectContaining({ method: 'PUT' }),
       );
+    });
+  });
+
+  describe('replyToTask', () => {
+    it('returns taskId and taskUrl on success', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ task_id: 'task-789', task_url: 'https://manus.ai/task/789' }),
+        }),
+      );
+
+      const result = await replyToTask('task-789', 'Here is more info');
+      expect(result).toEqual({ taskId: 'task-789', taskUrl: 'https://manus.ai/task/789' });
+    });
+
+    it('throws when MANUS_API_KEY is not set', async () => {
+      delete process.env.MANUS_API_KEY;
+      await expect(replyToTask('task-1', 'msg')).rejects.toThrow('MANUS_API_KEY is not configured');
+    });
+
+    it('throws with status on non-ok response', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 403,
+          text: async () => 'Forbidden',
+        }),
+      );
+      await expect(replyToTask('task-1', 'msg')).rejects.toThrow('Manus reply failed (403)');
     });
   });
 });

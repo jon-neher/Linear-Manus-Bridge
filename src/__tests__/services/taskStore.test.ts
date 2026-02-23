@@ -12,6 +12,7 @@ describe('taskStore', () => {
   let getPendingTask: typeof import('../../services/taskStore').getPendingTask;
   let consumePendingTask: typeof import('../../services/taskStore').consumePendingTask;
   let removeTask: typeof import('../../services/taskStore').removeTask;
+  let findTaskBySession: typeof import('../../services/taskStore').findTaskBySession;
 
   beforeEach(async () => {
     vi.resetModules();
@@ -26,6 +27,7 @@ describe('taskStore', () => {
     getPendingTask = mod.getPendingTask;
     consumePendingTask = mod.consumePendingTask;
     removeTask = mod.removeTask;
+    findTaskBySession = mod.findTaskBySession;
   });
 
   const record: TaskRecord = {
@@ -120,5 +122,16 @@ describe('taskStore', () => {
       expect(getTask('task-1')).toBeUndefined();
     });
   });
+  describe('findTaskBySession', () => {
+    it('returns the taskId matching the agentSessionId', () => {
+      storeTask('task-1', record);
+      storeTask('task-2', { ...record, agentSessionId: 'session-2' });
+      expect(findTaskBySession('session-2')).toBe('task-2');
+    });
 
+    it('returns undefined when no session matches', () => {
+      storeTask('task-1', record);
+      expect(findTaskBySession('no-match')).toBeUndefined();
+    });
+  });
 });
