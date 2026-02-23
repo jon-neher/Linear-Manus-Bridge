@@ -96,6 +96,7 @@ describe('linearAgentSession', () => {
         {
           signal: 'select',
           signalMetadata: { options: [{ label: 'A', value: 'a' }] },
+          ephemeral: true,
         },
       );
 
@@ -106,6 +107,7 @@ describe('linearAgentSession', () => {
           content: { type: 'elicitation', body: 'Choose one' },
           signal: 'select',
           signalMetadata: { options: [{ label: 'A', value: 'a' }] },
+          ephemeral: true,
         },
       });
     });

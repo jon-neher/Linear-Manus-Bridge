@@ -12,6 +12,7 @@ describe('taskStore', () => {
   let getPendingTask: typeof import('../../services/taskStore').getPendingTask;
   let consumePendingTask: typeof import('../../services/taskStore').consumePendingTask;
   let findPendingTaskBySession: typeof import('../../services/taskStore').findPendingTaskBySession;
+  let findPendingTaskByIssue: typeof import('../../services/taskStore').findPendingTaskByIssue;
   let removeTask: typeof import('../../services/taskStore').removeTask;
   let findTaskBySession: typeof import('../../services/taskStore').findTaskBySession;
 
@@ -28,6 +29,7 @@ describe('taskStore', () => {
     getPendingTask = mod.getPendingTask;
     consumePendingTask = mod.consumePendingTask;
     findPendingTaskBySession = mod.findPendingTaskBySession;
+    findPendingTaskByIssue = mod.findPendingTaskByIssue;
     removeTask = mod.removeTask;
     findTaskBySession = mod.findTaskBySession;
   });
@@ -129,6 +131,18 @@ describe('taskStore', () => {
       storePendingTask('comment-1', pending);
       const match = findPendingTaskBySession('session-1');
       expect(match).toEqual({ commentId: 'comment-1', record: pending });
+    });
+
+    it('finds pending tasks by issue id', () => {
+      const pending = {
+        linearIssueId: 'issue-1',
+        workspaceId: 'ws-1',
+        prompt: 'Prompt',
+        attachments: [],
+      };
+      storePendingTask('issue-1', pending);
+      const match = findPendingTaskByIssue('issue-1');
+      expect(match).toEqual({ commentId: 'issue-1', record: pending });
     });
   });
 

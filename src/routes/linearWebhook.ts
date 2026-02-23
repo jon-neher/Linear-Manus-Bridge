@@ -11,6 +11,7 @@ import { buildManusAttachments } from '../services/manusAttachments';
 import { createTaskWithFallback, replyToTask } from '../services/manusClient';
 import {
   consumePendingTask,
+  findPendingTaskByIssue,
   findPendingTaskBySession,
   findTaskByQuestionCommentId,
   findTaskBySession,
@@ -190,16 +191,7 @@ const GITHUB_CONNECTOR_ID = 'bbb0df76-66bd-4a24-ae4f-2aac4750d90b';
 const CONNECTORS_NONE_REGEX = /\/manus\s+connectors\s*=\s*none\b/i;
 
 const PROFILE_SELECTION_MESSAGE = 'Please select the Manus profile to use:';
-
-function buildProfileSelectionComment(): string {
-  return [
-    '## Manus profile selection',
-    '',
-    'Please reply in this thread with one of the following options:',
-    '',
-    PROFILE_OPTIONS.map((option) => `- ${'`'}${option}${'`'}`).join('\n'),
-  ].join('\n');
-}
+const PROFILE_GUIDANCE = `Please reply with one of: ${PROFILE_OPTIONS.join(', ')}`;
 
 function parseProfileChoice(body: string | undefined | null): string | null {
   if (!body) return null;
@@ -234,6 +226,14 @@ async function finalizePendingTask(
   selectedProfile: string,
   accessToken: string,
 ): Promise<{ taskId: string; taskUrl?: string; usedProfile: string; fallbackToLite: boolean }> {
+  if (pending.agentSessionId) {
+    await createAgentActivity(pending.agentSessionId, {
+      type: 'action',
+      action: 'Creating Manus task',
+      parameter: selectedProfile,
+    }, accessToken, { ephemeral: true }).catch(() => {});
+  }
+
   if (pending.linearTeamId) {
     const inProgressState = process.env.LINEAR_IN_PROGRESS_STATE ?? 'In Progress';
     try {
@@ -363,14 +363,11 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
       if (pendingSelection) {
         const selectedProfile = parseProfileChoice(userMessage);
         if (!selectedProfile) {
-          const { content, signal, signalMetadata } = buildProfileSelectionElicitation();
-          await createAgentActivity(
-            agentSessionId,
-            content,
-            accessToken,
-            { signal, signalMetadata },
-          ).catch(() => {});
-          res.json({ ok: true, awaitingProfile: true });
+          await createAgentActivity(agentSessionId, {
+            type: 'response',
+            body: PROFILE_GUIDANCE,
+          }, accessToken).catch(() => {});
+          res.json({ ok: true, awaitingProfile: true, message: 'invalid profile selection' });
           return;
         }
 
@@ -471,8 +468,8 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
     if (agentSessionId) {
       await createAgentActivity(agentSessionId, {
         type: 'thought',
-        body: 'Received issue — creating Manus task…',
-      }, accessToken).catch((err) =>
+        body: 'Received issue — awaiting profile selection…',
+      }, accessToken, { ephemeral: true }).catch((err) =>
         console.error('[linear/webhook] Failed to emit initial thought:', err),
       );
     }
@@ -537,39 +534,16 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
       }
     }
 
-    let profileCommentId: string | null = null;
-    try {
-      profileCommentId = await postComment(
-        issueId,
-        buildProfileSelectionComment(),
-        accessToken,
-      );
-    } catch (err) {
-      res.status(502).json({ error: (err as Error).message });
-      return;
-    }
-
-    if (profileCommentId) {
-      storePendingTask(profileCommentId, {
-        linearIssueId: issueId,
-        linearTeamId: teamId,
-        workspaceId,
-        agentSessionId,
-        prompt: prompt!,
-        attachments,
-        connectors,
-        profileActivityId,
-      });
-    }
-
-    if (agentSessionId) {
-      await createAgentActivity(agentSessionId, {
-        type: 'thought',
-        body: 'Waiting for profile selection before starting Manus task…',
-      }, accessToken).catch((err) =>
-        console.error('[linear/webhook] Failed to emit wait activity:', err),
-      );
-    }
+    storePendingTask(issueId, {
+      linearIssueId: issueId,
+      linearTeamId: teamId,
+      workspaceId,
+      agentSessionId,
+      prompt: prompt!,
+      attachments,
+      connectors,
+      profileActivityId,
+    });
 
     res.json({ ok: true, awaitingProfile: true });
     return;
@@ -585,17 +559,19 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
 
     const comment = payload.data;
     const parentId = comment?.parentId ?? comment?.parent?.id;
-    if (!parentId) {
-      res.json({ ok: true, ignored: true, reason: 'no parentId' });
-      return;
-    }
+    const issueId = comment?.issueId;
+    const pending = parentId ? getPendingTask(parentId) : undefined;
+    const pendingByIssue = !pending && issueId
+      ? findPendingTaskByIssue(issueId)
+      : undefined;
+    const pendingRecord = pending ?? pendingByIssue?.record;
+    const pendingKey = pending ? parentId! : pendingByIssue?.commentId;
 
-    const pending = getPendingTask(parentId);
-    if (pending) {
+    if (pendingRecord && pendingKey) {
       const selectedProfile = parseProfileChoice(comment?.body);
       let accessToken: string;
       try {
-        accessToken = await getValidToken(pending.workspaceId);
+        accessToken = await getValidToken(pendingRecord.workspaceId);
       } catch (err) {
         res.status(503).json({ error: (err as Error).message });
         return;
@@ -603,32 +579,37 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
 
       if (!selectedProfile) {
         await postComment(
-          pending.linearIssueId,
-          buildProfileSelectionComment(),
+          pendingRecord.linearIssueId,
+          PROFILE_GUIDANCE,
           accessToken,
-          parentId,
+          parentId ?? undefined,
         ).catch(() => {});
-        res.json({ ok: true, awaitingProfile: true });
+        res.json({ ok: true, awaitingProfile: true, message: 'invalid profile selection' });
         return;
       }
 
-      consumePendingTask(parentId);
+      consumePendingTask(pendingKey);
       try {
         const result = await finalizePendingTask(
-          pending,
+          pendingRecord,
           selectedProfile,
           accessToken,
         );
         res.json({ ok: true, taskId: result.taskId });
       } catch (err) {
         await postComment(
-          pending.linearIssueId,
+          pendingRecord.linearIssueId,
           `Manus task creation failed: ${(err as Error).message}`,
           accessToken,
         ).catch(() => {});
         res.status(502).json({ error: (err as Error).message });
         return;
       }
+      return;
+    }
+
+    if (!parentId) {
+      res.json({ ok: true, ignored: true, reason: 'no parentId' });
       return;
     }
 
@@ -772,11 +753,10 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
     ? []
     : [GITHUB_CONNECTOR_ID];
 
-  let profileCommentId: string | null = null;
   try {
-    profileCommentId = await postComment(
+    await postComment(
       issueId,
-      buildProfileSelectionComment(),
+      PROFILE_GUIDANCE,
       accessToken,
     );
   } catch (err) {
@@ -784,16 +764,14 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
     return;
   }
 
-  if (profileCommentId) {
-    storePendingTask(profileCommentId, {
-      linearIssueId: issueId,
-      linearTeamId: teamId ?? undefined,
-      workspaceId,
-      prompt,
-      attachments,
-      connectors,
-    });
-  }
+  storePendingTask(issueId, {
+    linearIssueId: issueId,
+    linearTeamId: teamId ?? undefined,
+    workspaceId,
+    prompt,
+    attachments,
+    connectors,
+  });
 
   res.json({ ok: true, awaitingProfile: true });
 });

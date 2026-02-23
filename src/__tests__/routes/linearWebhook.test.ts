@@ -32,6 +32,7 @@ vi.mock('../../services/taskStore', () => ({
   getPendingTask: vi.fn(),
   consumePendingTask: vi.fn(),
   findTaskByQuestionCommentId: vi.fn(),
+  findPendingTaskByIssue: vi.fn(),
   findPendingTaskBySession: vi.fn(),
   findTaskBySession: vi.fn(),
 }));
@@ -143,10 +144,16 @@ describe('Linear webhook endpoint', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ ok: true, awaitingProfile: true });
-    expect(storePendingTask).toHaveBeenCalledWith('comment-1', expect.objectContaining({
+    expect(storePendingTask).toHaveBeenCalledWith('issue-1', expect.objectContaining({
       connectors: ['bbb0df76-66bd-4a24-ae4f-2aac4750d90b'],
       profileActivityId: 'activity-1',
     }));
+    expect(createAgentActivity).toHaveBeenCalledWith(
+      'session-1',
+      expect.objectContaining({ type: 'thought' }),
+      'mock-token',
+      expect.objectContaining({ ephemeral: true }),
+    );
     expect(createAgentActivity).toHaveBeenCalledWith(
       'session-1',
       expect.objectContaining({ type: 'elicitation' }),
@@ -162,6 +169,7 @@ describe('Linear webhook endpoint', () => {
         },
       }),
     );
+    expect(postComment).not.toHaveBeenCalled();
   });
 
   it('AgentSessionEvent created: allows opt-out of GitHub connector', async () => {
@@ -169,6 +177,7 @@ describe('Linear webhook endpoint', () => {
     const { getIssueDetails, postComment } = await import('../../services/linearClient');
     const { buildManusAttachments } = await import('../../services/manusAttachments');
     const { storePendingTask } = await import('../../services/taskStore');
+    const { createAgentActivity } = await import('../../services/linearAgentSession');
 
     (getValidToken as ReturnType<typeof vi.fn>).mockResolvedValue('mock-token');
     (getIssueDetails as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -180,6 +189,9 @@ describe('Linear webhook endpoint', () => {
     });
     (postComment as ReturnType<typeof vi.fn>).mockResolvedValue('comment-1');
     (buildManusAttachments as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (createAgentActivity as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce('activity-1');
 
     const payload = {
       type: 'AgentSessionEvent',
@@ -200,9 +212,10 @@ describe('Linear webhook endpoint', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ ok: true, awaitingProfile: true });
-    expect(storePendingTask).toHaveBeenCalledWith('comment-1', expect.objectContaining({
+    expect(storePendingTask).toHaveBeenCalledWith('issue-1', expect.objectContaining({
       connectors: [],
     }));
+    expect(postComment).not.toHaveBeenCalled();
   });
 
   it('AgentSessionEvent missing issue id: returns 400', async () => {
@@ -247,18 +260,27 @@ describe('Linear webhook endpoint', () => {
 
   it('Comment reply with profile selection creates task', async () => {
     const { getValidToken } = await import('../../services/linearAuth');
-    const { getPendingTask, consumePendingTask, storeTask } = await import('../../services/taskStore');
+    const {
+      getPendingTask,
+      findPendingTaskByIssue,
+      consumePendingTask,
+      storeTask,
+    } = await import('../../services/taskStore');
     const { createTaskWithFallback } = await import('../../services/manusClient');
 
     (getValidToken as ReturnType<typeof vi.fn>).mockResolvedValue('mock-token');
-    (getPendingTask as ReturnType<typeof vi.fn>).mockReturnValue({
-      linearIssueId: 'issue-1',
-      linearTeamId: 'team-1',
-      workspaceId: 'org-1',
-      agentSessionId: 'session-1',
-      prompt: 'Prompt',
-      attachments: [],
-      connectors: ['github-connector'],
+    (getPendingTask as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    (findPendingTaskByIssue as ReturnType<typeof vi.fn>).mockReturnValue({
+      commentId: 'issue-1',
+      record: {
+        linearIssueId: 'issue-1',
+        linearTeamId: 'team-1',
+        workspaceId: 'org-1',
+        agentSessionId: 'session-1',
+        prompt: 'Prompt',
+        attachments: [],
+        connectors: ['github-connector'],
+      },
     });
     (createTaskWithFallback as ReturnType<typeof vi.fn>).mockResolvedValue({
       taskId: 'task-1',
@@ -291,8 +313,104 @@ describe('Linear webhook endpoint', () => {
     expect(createTaskWithFallback).toHaveBeenCalledWith('Prompt', expect.objectContaining({
       connectors: ['github-connector'],
     }));
-    expect(consumePendingTask).toHaveBeenCalledWith('comment-1');
+    expect(consumePendingTask).toHaveBeenCalledWith('issue-1');
     expect(storeTask).toHaveBeenCalled();
+  });
+
+  it('Comment without parentId can select profile when pending by issue', async () => {
+    const { getValidToken } = await import('../../services/linearAuth');
+    const { findPendingTaskByIssue, consumePendingTask, storeTask } = await import('../../services/taskStore');
+    const { createTaskWithFallback } = await import('../../services/manusClient');
+
+    (getValidToken as ReturnType<typeof vi.fn>).mockResolvedValue('mock-token');
+    (findPendingTaskByIssue as ReturnType<typeof vi.fn>).mockReturnValue({
+      commentId: 'issue-1',
+      record: {
+        linearIssueId: 'issue-1',
+        linearTeamId: 'team-1',
+        workspaceId: 'org-1',
+        agentSessionId: 'session-1',
+        prompt: 'Prompt',
+        attachments: [],
+      },
+    });
+    (createTaskWithFallback as ReturnType<typeof vi.fn>).mockResolvedValue({
+      taskId: 'task-2',
+      taskUrl: 'https://manus.ai/task/2',
+      usedProfile: 'manus-1.6',
+      fallbackToLite: false,
+    });
+
+    const payload = {
+      type: 'Comment',
+      action: 'create',
+      organizationId: 'org-1',
+      data: {
+        id: 'comment-3',
+        body: 'manus-1.6',
+        issueId: 'issue-1',
+      },
+    };
+    const { rawBody, signature } = signBody(payload);
+
+    const res = await request(app)
+      .post('/linear/webhook')
+      .set('Content-Type', 'application/json')
+      .set('linear-signature', signature)
+      .send(rawBody);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, taskId: 'task-2' });
+    expect(consumePendingTask).toHaveBeenCalledWith('issue-1');
+    expect(storeTask).toHaveBeenCalled();
+  });
+
+  it('Comment with invalid profile responds with guidance', async () => {
+    const { getValidToken } = await import('../../services/linearAuth');
+    const { findPendingTaskByIssue, consumePendingTask } = await import('../../services/taskStore');
+    const { postComment } = await import('../../services/linearClient');
+    const { createTaskWithFallback } = await import('../../services/manusClient');
+
+    (getValidToken as ReturnType<typeof vi.fn>).mockResolvedValue('mock-token');
+    (findPendingTaskByIssue as ReturnType<typeof vi.fn>).mockReturnValue({
+      commentId: 'issue-1',
+      record: {
+        linearIssueId: 'issue-1',
+        workspaceId: 'org-1',
+        agentSessionId: 'session-1',
+        prompt: 'Prompt',
+        attachments: [],
+      },
+    });
+
+    const payload = {
+      type: 'Comment',
+      action: 'create',
+      organizationId: 'org-1',
+      data: {
+        id: 'comment-4',
+        body: 'not-a-profile',
+        issueId: 'issue-1',
+      },
+    };
+    const { rawBody, signature } = signBody(payload);
+
+    const res = await request(app)
+      .post('/linear/webhook')
+      .set('Content-Type', 'application/json')
+      .set('linear-signature', signature)
+      .send(rawBody);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, awaitingProfile: true });
+    expect(consumePendingTask).not.toHaveBeenCalled();
+    expect(createTaskWithFallback).not.toHaveBeenCalled();
+    expect(postComment).toHaveBeenCalledWith(
+      'issue-1',
+      expect.stringContaining('manus-1.6'),
+      'mock-token',
+      undefined,
+    );
   });
 
   it('AgentSessionEvent prompted: profile selection creates task', async () => {
@@ -385,9 +503,8 @@ describe('Linear webhook endpoint', () => {
     expect(createTaskWithFallback).not.toHaveBeenCalled();
     expect(createAgentActivity).toHaveBeenCalledWith(
       'session-1',
-      expect.objectContaining({ type: 'elicitation' }),
+      expect.objectContaining({ type: 'response' }),
       'mock-token',
-      expect.objectContaining({ signal: 'select' }),
     );
   });
 
