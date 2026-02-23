@@ -84,6 +84,32 @@ describe('linearAgentSession', () => {
       });
     });
 
+    it('includes select signal metadata when provided', async () => {
+      globalThis.fetch = mockFetchJson({
+        agentActivityCreate: { success: true, agentActivity: { id: 'activity-5' } },
+      });
+
+      const result = await createAgentActivity(
+        'session-1',
+        { type: 'elicitation', body: 'Choose one' },
+        TOKEN,
+        {
+          signal: 'select',
+          signalMetadata: { options: [{ label: 'A', value: 'a' }] },
+        },
+      );
+
+      expect(result).toBe('activity-5');
+      expectGqlCall(globalThis.fetch, {
+        input: {
+          agentSessionId: 'session-1',
+          content: { type: 'elicitation', body: 'Choose one' },
+          signal: 'select',
+          signalMetadata: { options: [{ label: 'A', value: 'a' }] },
+        },
+      });
+    });
+
     it('returns activity id for an action', async () => {
       globalThis.fetch = mockFetchJson({
         agentActivityCreate: { success: true, agentActivity: { id: 'activity-2' } },

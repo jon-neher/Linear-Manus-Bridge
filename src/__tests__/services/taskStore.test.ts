@@ -11,6 +11,7 @@ describe('taskStore', () => {
   let storePendingTask: typeof import('../../services/taskStore').storePendingTask;
   let getPendingTask: typeof import('../../services/taskStore').getPendingTask;
   let consumePendingTask: typeof import('../../services/taskStore').consumePendingTask;
+  let findPendingTaskBySession: typeof import('../../services/taskStore').findPendingTaskBySession;
   let removeTask: typeof import('../../services/taskStore').removeTask;
   let findTaskBySession: typeof import('../../services/taskStore').findTaskBySession;
 
@@ -26,6 +27,7 @@ describe('taskStore', () => {
     storePendingTask = mod.storePendingTask;
     getPendingTask = mod.getPendingTask;
     consumePendingTask = mod.consumePendingTask;
+    findPendingTaskBySession = mod.findPendingTaskBySession;
     removeTask = mod.removeTask;
     findTaskBySession = mod.findTaskBySession;
   });
@@ -108,11 +110,25 @@ describe('taskStore', () => {
         prompt: 'Prompt',
         attachments: [],
         connectors: ['connector-1'],
+        profileActivityId: 'activity-1',
       };
       storePendingTask('comment-1', pending);
       expect(getPendingTask('comment-1')).toEqual(pending);
       expect(consumePendingTask('comment-1')).toEqual(pending);
       expect(getPendingTask('comment-1')).toBeUndefined();
+    });
+
+    it('finds pending tasks by agent session id', () => {
+      const pending = {
+        linearIssueId: 'issue-1',
+        workspaceId: 'ws-1',
+        agentSessionId: 'session-1',
+        prompt: 'Prompt',
+        attachments: [],
+      };
+      storePendingTask('comment-1', pending);
+      const match = findPendingTaskBySession('session-1');
+      expect(match).toEqual({ commentId: 'comment-1', record: pending });
     });
   });
 

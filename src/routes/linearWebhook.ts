@@ -11,9 +11,12 @@ import { buildManusAttachments } from '../services/manusAttachments';
 import { createTaskWithFallback, replyToTask } from '../services/manusClient';
 import {
   consumePendingTask,
+  findPendingTaskBySession,
   findTaskByQuestionCommentId,
+  findTaskBySession,
   getPendingTask,
   getTask,
+  type PendingTaskRecord,
   storePendingTask,
   storeTask,
 } from '../services/taskStore';
@@ -186,6 +189,8 @@ const PROFILE_OPTIONS = ['manus-1.6', 'manus-1.6-lite', 'manus-1.6-max'] as cons
 const GITHUB_CONNECTOR_ID = 'bbb0df76-66bd-4a24-ae4f-2aac4750d90b';
 const CONNECTORS_NONE_REGEX = /\/manus\s+connectors\s*=\s*none\b/i;
 
+const PROFILE_SELECTION_MESSAGE = 'Please select the Manus profile to use:';
+
 function buildProfileSelectionComment(): string {
   return [
     '## Manus profile selection',
@@ -205,10 +210,79 @@ function parseProfileChoice(body: string | undefined | null): string | null {
   return null;
 }
 
+function buildProfileSelectionElicitation() {
+  return {
+    content: {
+      type: 'elicitation' as const,
+      body: PROFILE_SELECTION_MESSAGE,
+    },
+    signal: 'select' as const,
+    signalMetadata: {
+      options: PROFILE_OPTIONS.map((option) => ({ label: option, value: option })),
+    },
+  };
+}
+
 function shouldDisableGithubConnector(
   comments: Array<{ body: string }>,
 ): boolean {
   return comments.some((comment) => CONNECTORS_NONE_REGEX.test(comment.body));
+}
+
+async function finalizePendingTask(
+  pending: PendingTaskRecord,
+  selectedProfile: string,
+  accessToken: string,
+): Promise<{ taskId: string; taskUrl?: string; usedProfile: string; fallbackToLite: boolean }> {
+  if (pending.linearTeamId) {
+    const inProgressState = process.env.LINEAR_IN_PROGRESS_STATE ?? 'In Progress';
+    try {
+      const stateId = await findStateIdByName(
+        pending.linearTeamId,
+        inProgressState,
+        accessToken,
+      );
+      if (stateId) {
+        await updateIssueState(pending.linearIssueId, stateId, accessToken);
+      }
+    } catch (err) {
+      console.error('Failed to update issue state:', err);
+    }
+  }
+
+  const result = await createTaskWithFallback(pending.prompt, {
+    agentProfile: selectedProfile,
+    attachments: pending.attachments,
+    interactiveMode: true,
+    connectors: pending.connectors,
+  });
+
+  storeTask(result.taskId, {
+    linearIssueId: pending.linearIssueId,
+    linearTeamId: pending.linearTeamId,
+    workspaceId: pending.workspaceId,
+    agentSessionId: pending.agentSessionId,
+  });
+
+  if (pending.agentSessionId) {
+    if (result.taskUrl) {
+      await updateAgentSession(pending.agentSessionId, {
+        externalUrls: [{ label: 'View in Manus', url: result.taskUrl }],
+      }, accessToken).catch(() => {});
+    }
+
+    const profileNote = result.fallbackToLite
+      ? ` (fallback to ${result.usedProfile} due to credits)`
+      : '';
+    await createAgentActivity(pending.agentSessionId, {
+      type: 'action',
+      action: 'Created Manus task',
+      parameter: result.taskId,
+      result: `Profile: ${result.usedProfile}${profileNote}`,
+    }, accessToken).catch(() => {});
+  }
+
+  return result;
 }
 
 // ─── Route ───────────────────────────────────────────────────────────────────
@@ -285,11 +359,48 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
         return;
       }
 
+      const pendingSelection = findPendingTaskBySession(agentSessionId);
+      if (pendingSelection) {
+        const selectedProfile = parseProfileChoice(userMessage);
+        if (!selectedProfile) {
+          const { content, signal, signalMetadata } = buildProfileSelectionElicitation();
+          await createAgentActivity(
+            agentSessionId,
+            content,
+            accessToken,
+            { signal, signalMetadata },
+          ).catch(() => {});
+          res.json({ ok: true, awaitingProfile: true });
+          return;
+        }
+
+        consumePendingTask(pendingSelection.commentId);
+
+        try {
+          const result = await finalizePendingTask(
+            pendingSelection.record,
+            selectedProfile,
+            accessToken,
+          );
+          res.json({ ok: true, taskId: result.taskId });
+        } catch (err) {
+          const message = (err as Error).message;
+          await createAgentActivity(agentSessionId, {
+            type: 'error',
+            body: `Manus task creation failed: ${message}`,
+          }, accessToken).catch(() => {});
+          await postComment(
+            pendingSelection.record.linearIssueId,
+            `Manus task creation failed: ${message}`,
+            accessToken,
+          ).catch(() => {});
+          res.status(502).json({ error: message });
+        }
+        return;
+      }
+
       // Find the Manus task ID associated with this session
-      let manusTaskId: string | undefined;
-      // Search task store for matching agentSessionId
-      const { findTaskBySession } = await import('../services/taskStore');
-      manusTaskId = findTaskBySession(agentSessionId);
+      const manusTaskId = findTaskBySession(agentSessionId);
 
       if (!manusTaskId) {
         console.error('[linear/webhook] No Manus task found for session:', agentSessionId);
@@ -411,6 +522,21 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
       ? []
       : [GITHUB_CONNECTOR_ID];
 
+    let profileActivityId: string | null = null;
+    if (agentSessionId) {
+      const { content, signal, signalMetadata } = buildProfileSelectionElicitation();
+      try {
+        profileActivityId = await createAgentActivity(
+          agentSessionId,
+          content,
+          accessToken,
+          { signal, signalMetadata },
+        );
+      } catch (err) {
+        console.error('[linear/webhook] Failed to emit profile selection:', err);
+      }
+    }
+
     let profileCommentId: string | null = null;
     try {
       profileCommentId = await postComment(
@@ -432,6 +558,7 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
         prompt: prompt!,
         attachments,
         connectors,
+        profileActivityId,
       });
     }
 
@@ -486,38 +613,13 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
       }
 
       consumePendingTask(parentId);
-
-      if (pending.linearTeamId) {
-        const inProgressState = process.env.LINEAR_IN_PROGRESS_STATE ?? 'In Progress';
-        try {
-          const stateId = await findStateIdByName(
-            pending.linearTeamId,
-            inProgressState,
-            accessToken,
-          );
-          if (stateId) {
-            await updateIssueState(pending.linearIssueId, stateId, accessToken);
-          }
-        } catch (err) {
-          console.error('Failed to update issue state:', err);
-        }
-      }
-
-      let taskId: string;
-      let taskUrl: string | undefined;
-      let usedProfile = selectedProfile;
-      let fallbackToLite = false;
       try {
-        const result = await createTaskWithFallback(pending.prompt, {
-          agentProfile: selectedProfile,
-          attachments: pending.attachments,
-          interactiveMode: true,
-          connectors: pending.connectors,
-        });
-        taskId = result.taskId;
-        taskUrl = result.taskUrl;
-        usedProfile = result.usedProfile;
-        fallbackToLite = result.fallbackToLite;
+        const result = await finalizePendingTask(
+          pending,
+          selectedProfile,
+          accessToken,
+        );
+        res.json({ ok: true, taskId: result.taskId });
       } catch (err) {
         await postComment(
           pending.linearIssueId,
@@ -527,33 +629,6 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
         res.status(502).json({ error: (err as Error).message });
         return;
       }
-
-      storeTask(taskId, {
-        linearIssueId: pending.linearIssueId,
-        linearTeamId: pending.linearTeamId,
-        workspaceId: pending.workspaceId,
-        agentSessionId: pending.agentSessionId,
-      });
-
-      if (pending.agentSessionId) {
-        if (taskUrl) {
-          await updateAgentSession(pending.agentSessionId, {
-            externalUrls: [{ label: 'View in Manus', url: taskUrl }],
-          }, accessToken).catch(() => {});
-        }
-
-        const profileNote = fallbackToLite
-          ? ` (fallback to ${usedProfile} due to credits)`
-          : '';
-        await createAgentActivity(pending.agentSessionId, {
-          type: 'action',
-          action: 'Created Manus task',
-          parameter: taskId,
-          result: `Profile: ${usedProfile}${profileNote}`,
-        }, accessToken).catch(() => {});
-      }
-
-      res.json({ ok: true, taskId });
       return;
     }
 
