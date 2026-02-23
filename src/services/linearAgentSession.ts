@@ -78,6 +78,7 @@ export type AgentActivitySignal = 'auth' | 'select';
 export interface AgentActivitySignalOptions {
   signal?: AgentActivitySignal;
   signalMetadata?: Record<string, unknown>;
+  ephemeral?: boolean;
 }
 
 export async function createAgentActivity(
@@ -101,6 +102,7 @@ export async function createAgentActivity(
         content,
         signal: options.signal,
         signalMetadata: options.signalMetadata,
+        ephemeral: options.ephemeral,
       },
     },
     accessToken,

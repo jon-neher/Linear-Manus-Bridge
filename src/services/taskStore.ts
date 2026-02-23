@@ -92,6 +92,17 @@ export function findPendingTaskBySession(
   return undefined;
 }
 
+export function findPendingTaskByIssue(
+  issueId: string,
+): { commentId: string; record: PendingTaskRecord } | undefined {
+  for (const [commentId, record] of pendingTaskStore.entries()) {
+    if (record.linearIssueId === issueId) {
+      return { commentId, record };
+    }
+  }
+  return undefined;
+}
+
 export function consumePendingTask(commentId: string): PendingTaskRecord | undefined {
   const record = pendingTaskStore.get(commentId);
   if (record) pendingTaskStore.delete(commentId);
