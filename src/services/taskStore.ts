@@ -16,6 +16,7 @@ export interface PendingTaskRecord {
   agentSessionId?: string;
   prompt: string;
   attachments: ManusAttachment[];
+  connectors?: string[];
 }
 
 // In-memory task store mapping Manus task IDs to Linear issue context.

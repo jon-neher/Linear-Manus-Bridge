@@ -23,6 +23,7 @@ export interface ManusTaskOptions {
   taskId?: string;
   interactiveMode?: boolean;
   attachments?: ManusAttachment[];
+  connectors?: string[];
 }
 
 export type ManusAttachment =
@@ -61,6 +62,7 @@ async function requestCreateTask(
       taskMode: options.taskMode ?? process.env.MANUS_TASK_MODE ?? 'agent',
       interactiveMode: options.interactiveMode ?? true,
       attachments: options.attachments,
+      connectors: options.connectors,
     }),
   });
 

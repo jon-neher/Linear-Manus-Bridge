@@ -87,7 +87,11 @@ describe('manusClient', () => {
       });
       vi.stubGlobal('fetch', mockFetch);
 
-      await createTaskWithFallback('Build a widget', { agentProfile: 'custom-agent', taskMode: 'plan' });
+      await createTaskWithFallback('Build a widget', {
+        agentProfile: 'custom-agent',
+        taskMode: 'plan',
+        connectors: ['connector-1'],
+      });
 
       expect(mockFetch).toHaveBeenCalledOnce();
       const [url, init] = mockFetch.mock.calls[0];
@@ -104,6 +108,7 @@ describe('manusClient', () => {
         agentProfile: 'custom-agent',
         taskMode: 'plan',
         interactiveMode: true,
+        connectors: ['connector-1'],
       });
     });
 
