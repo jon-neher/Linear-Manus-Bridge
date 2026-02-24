@@ -49,6 +49,11 @@ export async function createManusWebhook(url: string): Promise<{ webhookId: stri
 
   if (!response.ok) {
     const text = await response.text();
+    // 409 means the webhook URL already exists — treat as success
+    if (response.status === 409) {
+      console.log('[manusWebhooks] Webhook URL already registered (409) — reusing existing');
+      return { webhookId: '__existing__' };
+    }
     throw new Error(`Manus webhook creation failed (${response.status}): ${text}`);
   }
 

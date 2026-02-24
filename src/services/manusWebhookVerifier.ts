@@ -94,6 +94,13 @@ export async function verifyManusWebhookSignature(
   const bodyHash = createHash('sha256').update(rawBody).digest('hex');
   const signedContent = `${timestamp}.${webhookUrl}.${bodyHash}`;
 
+  console.log('[ManusVerifier] Signed content components', {
+    timestamp,
+    webhookUrl,
+    bodyHashPreview: bodyHash.slice(0, 16) + '…',
+    signedContentPreview: signedContent.slice(0, 80) + '…',
+  });
+
   // 3. Hash the signed content string itself (Manus signs the SHA256 of the content string).
   const contentHash = createHash('sha256').update(signedContent, 'utf8').digest();
 
@@ -111,7 +118,9 @@ export async function verifyManusWebhookSignature(
     const signatureBuffer = Buffer.from(signature, 'base64');
     const verifier = createVerify('RSA-SHA256');
     verifier.update(contentHash);
-    return verifier.verify(publicKeyPem, signatureBuffer);
+    const result = verifier.verify(publicKeyPem, signatureBuffer);
+    console.log('[ManusVerifier] Signature verify result:', result);
+    return result;
   } catch (err) {
     console.error('[ManusVerifier] Signature verification threw an error:', err);
     return false;

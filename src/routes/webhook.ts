@@ -113,30 +113,51 @@ async function checkManusSignature(req: RawBodyRequest, res: Response): Promise<
   const timestamp = req.headers['x-webhook-timestamp'] as string | undefined;
   const rawBody = req.rawBody;
 
+  console.log('[webhook/manus] checkManusSignature', {
+    hasSignature: !!signature,
+    hasTimestamp: !!timestamp,
+    hasRawBody: !!rawBody,
+    rawBodyLength: rawBody?.length ?? 0,
+  });
+
   // If neither security header is present, Manus has not sent a signed request.
   // This can happen during the initial webhook registration verification ping.
   if (!signature && !timestamp) {
+    console.log('[webhook/manus] No signature headers — permissive pass');
     return true;
   }
 
   if (!signature || !timestamp) {
+    console.warn('[webhook/manus] Partial signature headers — rejecting', {
+      signature: signature ? '(present)' : '(missing)',
+      timestamp: timestamp ? '(present)' : '(missing)',
+    });
     res.status(401).json({ error: 'Unauthorized: missing required signature headers' });
     return false;
   }
 
   if (!rawBody) {
+    console.error('[webhook/manus] rawBody unavailable for verification');
     res.status(500).json({ error: 'Raw body unavailable for signature verification' });
     return false;
   }
 
   const webhookUrl = buildWebhookUrl(req);
+  console.log('[webhook/manus] Verifying signature', {
+    webhookUrl,
+    timestamp,
+    signaturePreview: signature.slice(0, 20) + '…',
+  });
+
   const valid = await verifyManusWebhookSignature(rawBody, signature, timestamp, webhookUrl);
 
   if (!valid) {
+    console.warn('[webhook/manus] Signature verification FAILED');
     res.status(401).json({ error: 'Unauthorized: invalid webhook signature' });
     return false;
   }
 
+  console.log('[webhook/manus] Signature verification OK');
   return true;
 }
 
