@@ -18,6 +18,7 @@ import {
   getPendingTask,
   getTask,
   type PendingTaskRecord,
+  removeTasksByIssue,
   storePendingTask,
   storeTask,
 } from '../services/taskStore';
@@ -506,12 +507,14 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
       return;
     }
 
-    // Emit initial thought activity IMMEDIATELY (must be within 10s)
+    // Emit initial thought activity IMMEDIATELY (must be within 10s).
+    // Must be non-ephemeral so Linear counts it as an acknowledgment;
+    // ephemeral activities may not prevent auto-archive on reassignment.
     if (agentSessionId) {
       await createAgentActivity(agentSessionId, {
         type: 'thought',
-        body: 'Received issue — awaiting profile selection…',
-      }, accessToken, { ephemeral: true }).catch((err) =>
+        body: 'Received issue — preparing to delegate to Manus…',
+      }, accessToken).catch((err) =>
         console.error('[linear/webhook] Failed to emit initial thought:', err),
       );
     }
@@ -561,6 +564,10 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
       ? []
       : [GITHUB_CONNECTOR_ID];
 
+    // Clean up stale task/pending records from previous sessions for this issue
+    // so re-assignment after archive starts fresh.
+    removeTasksByIssue(issueId);
+
     let profileActivityId: string | null = null;
     if (agentSessionId) {
       const { content, signal, signalMetadata } = buildProfileSelectionElicitation();
@@ -573,6 +580,11 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
         );
       } catch (err) {
         console.error('[linear/webhook] Failed to emit profile selection:', err);
+        // Fallback: emit a plain response so the user sees the profile options
+        await createAgentActivity(agentSessionId, {
+          type: 'response',
+          body: PROFILE_GUIDANCE,
+        }, accessToken).catch(() => {});
       }
     }
 
