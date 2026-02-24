@@ -6,9 +6,20 @@ When a user delegates a Linear issue to the Manus app, the bridge intercepts the
 
 ---
 
+## ✨ Key Features
+
+*   **Automated Task Creation**: Automatically spawns Manus tasks when issues are delegated in Linear.
+*   **Real-time Sync**: Updates Linear issue status and comments as Manus progresses.
+*   **Context Awareness**: Forwards issue descriptions, comments, and attachments to Manus.
+*   **Secure**: Implements HMAC-SHA256 and RSA-SHA256 signature verification for webhooks.
+*   **Flexible**: Supports custom agent profiles and workflow state mappings.
+*   **Robust Storage**: Encrypted storage for OAuth tokens and persistent task mapping.
+
+---
+
 ## 🏗 Architecture
 
-The Linear-Manus Bridge acts as an intermediary, facilitating communication and data flow between Linear and Manus. The architecture is designed for robustness and real-time interaction.
+The Linear-Manus Bridge acts as an intermediary, facilitating communication and data flow between Linear and Manus.
 
 ```mermaid
 graph TD
@@ -44,32 +55,51 @@ graph TD
 
 ---
 
-## ⚙️ Environment Variables
+## 🚀 Getting Started
 
-The following environment variables are required for the Linear-Manus Bridge to function correctly. These can be configured in your deployment environment (e.g., `.env` file, Railway variables).
+### Prerequisites
 
-| Variable | Required | Description |
-| :--- | :---: | :--- |
-| `LINEAR_CLIENT_ID` | Yes | OAuth App Client ID obtained from Linear Settings. |
-| `LINEAR_CLIENT_SECRET` | Yes | OAuth App Client Secret obtained from Linear Settings. |
-| `LINEAR_REDIRECT_URI` | Yes | The registered callback URL for your Linear OAuth app (e.g., `https://<your-domain>/oauth/callback`). |
-| `LINEAR_WEBHOOK_SECRET` | Yes | The signing secret for Linear webhooks, configured in Linear Webhook settings. Used for HMAC-SHA256 verification. |
-| `MANUS_API_KEY` | Yes | Your API key from the [Manus Dashboard](https://manus.im). |
-| `INSTALLATION_STORE_SECRET` | Yes | A random, strong secret used for AES-256-GCM encryption of OAuth tokens at rest. |
-| `SERVICE_BASE_URL` | Yes | The production URL of your deployed bridge service (e.g., `https://linear-manus-bridge.example.com`). No trailing slash. Used for Manus webhook signature verification and constructing callback URLs. |
-| `DATA_DIR` | Yes | Path to a persistent storage directory (e.g., `/data` on Railway) for storing encrypted OAuth tokens and task mappings. |
-| `MANUS_API_URL` | No | Base URL for the Manus API. Defaults to `https://api.manus.ai`. |
-| `MANUS_AGENT_PROFILE` | No | Default Manus agent profile to use. Options: `manus-1.6` (default), `manus-1.6-lite`, `manus-1.6-max`. |
-| `LINEAR_IN_PROGRESS_STATE`| No | Name of the Linear workflow state for issues being processed by Manus. Default: `In Progress`. |
-| `LINEAR_COMPLETION_STATE` | No | Name of the Linear workflow state for issues completed by Manus. Default: `Done`. |
-| `LINEAR_FAILURE_STATE` | No | Name of the Linear workflow state for issues where Manus task failed. Default: `Cancelled`. |
-| `LINEAR_NEEDS_INPUT_STATE` | No | Name of the Linear workflow state for issues where Manus requires user input. Default: `Needs Input`. |
+*   **Node.js**: version 20 or higher.
+*   **Linear Account**: With permissions to create OAuth applications and webhooks.
+*   **Manus Account**: With an active API key from the [Manus Dashboard](https://manus.im).
+
+### Local Development
+
+1.  **Clone the repository**:
+    ```bash
+    git clone https://github.com/jon-neher/Linear-Manus-Bridge.git
+    cd Linear-Manus-Bridge
+    ```
+
+2.  **Install dependencies**:
+    ```bash
+    npm install
+    ```
+
+3.  **Configure environment**:
+    Copy `env.example` to `.env` and fill in the required variables.
+    ```bash
+    cp env.example .env
+    ```
+
+4.  **Run the development server**:
+    ```bash
+    npm run dev
+    ```
+
+5.  **Expose locally (optional)**:
+    Use a tool like `ngrok` or `localtunnel` to expose your local server to the internet for webhook testing.
+    ```bash
+    ngrok http 3000
+    ```
 
 ---
 
-## 💾 Persistent Storage
+## 🛠 Deployment & Setup
 
-The bridge utilizes a persistent filesystem to securely store encrypted OAuth tokens and maintain task mappings between Linear and Manus. This ensures continuity across service restarts and deployments.
+### 1. Persistent Storage & Railway Setup
+
+The bridge utilizes a persistent filesystem to securely store encrypted OAuth tokens and maintain task mappings. This ensures continuity across service restarts.
 
 | File | Contents |
 | :--- | :--- |
@@ -78,22 +108,13 @@ The bridge utilizes a persistent filesystem to securely store encrypted OAuth to
 | `.pending-tasks.json` | Temporary store for tasks awaiting user input (e.g., profile selection). |
 | `.manus-webhook.json` | Stores the registered Manus webhook ID for management. |
 
-### Railway Setup
-
-For deployments on platforms like Railway that offer ephemeral filesystems, it is crucial to configure persistent storage:
-
+**Railway Setup (Recommended)**:
 1.  Add a **Volume** in your Railway project settings. Set its Mount Path to `/data`.
 2.  In your Railway Variables, set `DATA_DIR=/data`.
 
----
+### 2. Register Manus Webhook
 
-## 🛠 Deployment & Setup
-
-Follow these steps to deploy and set up the Linear-Manus Bridge:
-
-### 1. Register Manus Webhook
-
-Register your bridge's Manus webhook endpoint with Manus to receive real-time task updates. This is typically done once on service startup, as implemented in `src/services/manusWebhooks.ts`.
+Register your bridge's Manus webhook endpoint with Manus. This is typically done once on service startup, as implemented in `src/services/manusWebhooks.ts`.
 
 ```bash
 curl -X POST https://api.manus.ai/v1/webhooks \
@@ -102,7 +123,7 @@ curl -X POST https://api.manus.ai/v1/webhooks \
   -d '{"webhook": {"url": "https://<your-domain>/webhook/manus"}}'
 ```
 
-### 2. Configure Linear Webhook
+### 3. Configure Linear Webhook
 
 In your Linear workspace, configure a webhook to send `AgentSessionEvent`s to your bridge:
 
@@ -112,7 +133,7 @@ In your Linear workspace, configure a webhook to send `AgentSessionEvent`s to yo
 4.  Select `Agent session events` under "Events".
 5.  Copy the generated **Signing secret** and set it as `LINEAR_WEBHOOK_SECRET` in your environment variables.
 
-### 3. OAuth Installation
+### 4. OAuth Installation
 
 To authorize the bridge for your Linear workspace:
 
@@ -122,13 +143,38 @@ To authorize the bridge for your Linear workspace:
 
 ---
 
-## 🔐 Security
+## ⚙️ Environment Variables
 
-The Linear-Manus Bridge implements several security measures to protect data and ensure the integrity of communications:
+| Variable | Required | Description |
+| :--- | :---: | :--- |
+| `LINEAR_CLIENT_ID` | Yes | OAuth App Client ID obtained from Linear Settings. |
+| `LINEAR_CLIENT_SECRET` | Yes | OAuth App Client Secret obtained from Linear Settings. |
+| `LINEAR_REDIRECT_URI` | Yes | The registered callback URL for your Linear OAuth app (e.g., `https://<your-domain>/oauth/callback`). |
+| `LINEAR_WEBHOOK_SECRET` | Yes | The signing secret for Linear webhooks, configured in Linear Webhook settings. Used for HMAC-SHA256 verification. |
+| `MANUS_API_KEY` | Yes | Your API key from the [Manus Dashboard](https://manus.im). |
+| `INSTALLATION_STORE_SECRET` | Yes | A random, strong secret used for AES-256-GCM encryption of OAuth tokens at rest. |
+| `SERVICE_BASE_URL` | Yes | The production URL of your deployed bridge service. No trailing slash. |
+| `DATA_DIR` | Yes | Path to a persistent storage directory (e.g., `/data` on Railway). |
+| `MANUS_API_URL` | No | Base URL for the Manus API. Defaults to `https://api.manus.ai`. |
+| `MANUS_AGENT_PROFILE` | No | Default Manus agent profile. Options: `manus-1.6`, `manus-1.6-lite`, `manus-1.6-max`. |
+| `LINEAR_IN_PROGRESS_STATE`| No | Linear workflow state for issues being processed. Default: `In Progress`. |
+| `LINEAR_COMPLETION_STATE` | No | Linear workflow state for completed issues. Default: `Done`. |
+| `LINEAR_FAILURE_STATE` | No | Linear workflow state for failed tasks. Default: `Cancelled`. |
 
-*   **Linear Webhook Verification (HMAC-SHA256)**: Incoming webhooks from Linear are verified using the `LINEAR_WEBHOOK_SECRET` and an HMAC-SHA256 algorithm. This ensures that webhook payloads are authentic and have not been tampered with [2].
-*   **Manus Webhook Verification (RSA-SHA256)**: Webhooks received from Manus are verified using RSA-SHA256 signatures. The bridge fetches and caches Manus's public key from `/v1/webhook/public_key` to validate the `X-Webhook-Signature` and `X-Webhook-Timestamp` headers [6].
-*   **OAuth Token Encryption**: Linear OAuth tokens are sensitive credentials. The bridge encrypts these tokens at rest using AES-256-GCM with a randomly generated `INSTALLATION_STORE_SECRET`, providing robust protection against unauthorized access.
+---
+
+## 📂 Project Structure
+
+```text
+├── src/
+│   ├── routes/          # Express route handlers (Linear, Manus, OAuth)
+│   ├── services/        # Business logic (API clients, auth, storage)
+│   ├── __tests__/       # Test suite (Vitest)
+│   └── index.ts         # Entry point & app configuration
+├── package.json         # Dependencies & scripts
+├── tsconfig.json        # TypeScript configuration
+└── vitest.config.ts     # Vitest configuration
+```
 
 ---
 
@@ -139,7 +185,7 @@ The Linear-Manus Bridge implements several security measures to protect data and
 The bridge intelligently handles attachments to provide comprehensive context to Manus tasks:
 
 *   **URLs**: Any `https://` links found within the Linear issue description or comments are automatically extracted and passed to Manus as URL attachments [4].
-*   **Base64 Files**: Users can embed base64-encoded files directly into Linear issue descriptions using a specific Markdown block. The bridge detects and uploads these files to Manus:
+*   **Base64 Files**: Users can embed base64-encoded files directly into Linear issue descriptions using a specific Markdown block:
 
     ```markdown
     ```manus-base64 filename=data.csv mime=text/csv
@@ -147,18 +193,36 @@ The bridge intelligently handles attachments to provide comprehensive context to
     ```
     ```
 
-    The `filename` and `mime` (or `mimetype`) parameters are optional but recommended for proper file handling.
-
 ### 🤖 Profile Selection
 
-Users can specify a particular Manus agent profile for a task by adding a comment to the Linear issue. For example, a comment like `/manus profile=manus-1.6-max` will instruct the bridge to use the `manus-1.6-max` profile. If the selected premium profile has insufficient credits, the system automatically falls back to `manus-1.6-lite` [2].
+Users can specify a particular Manus agent profile for a task by adding a comment to the Linear issue. For example, a comment like `/manus profile=manus-1.6-max` will instruct the bridge to use the `manus-1.6-max` profile.
+
+---
+
+## 🔐 Security
+
+*   **Linear Webhook Verification**: Uses HMAC-SHA256 with the `LINEAR_WEBHOOK_SECRET` to verify incoming payloads [2].
+*   **Manus Webhook Verification**: Uses RSA-SHA256 signatures with cached public keys from Manus [6].
+*   **Token Encryption**: Linear OAuth tokens are encrypted at rest using AES-256-GCM with the `INSTALLATION_STORE_SECRET`.
 
 ---
 
 ## ⚖️ Known Limitations
 
-*   **Multi-workspace**: While the underlying storage mechanism supports multiple workspace installations, the current routing logic is primarily optimized for single-workspace deployments.
-*   **Rate Limits**: Operations are subject to the API rate limits imposed by both Linear and Manus.
+*   **Multi-workspace**: While the storage supports multiple installations, the routing is optimized for single-workspace deployments.
+*   **Task Store**: The current `taskStore` implementation is in-memory and will be cleared on service restart.
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
 ---
 
