@@ -7,9 +7,8 @@ const publicKeyPem = publicKey.export({ type: 'pkcs1', format: 'pem' }) as strin
 function signPayload(body: Buffer, timestamp: string, url: string, privKey: KeyObject): string {
   const bodyHash = createHash('sha256').update(body).digest('hex');
   const signedContent = `${timestamp}.${url}.${bodyHash}`;
-  const contentHash = createHash('sha256').update(signedContent, 'utf8').digest();
   const signer = createSign('RSA-SHA256');
-  signer.update(contentHash);
+  signer.update(signedContent, 'utf8');
   return signer.sign(privKey, 'base64');
 }
 

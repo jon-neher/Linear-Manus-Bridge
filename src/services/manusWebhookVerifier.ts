@@ -101,10 +101,7 @@ export async function verifyManusWebhookSignature(
     signedContentPreview: signedContent.slice(0, 80) + '…',
   });
 
-  // 3. Hash the signed content string itself (Manus signs the SHA256 of the content string).
-  const contentHash = createHash('sha256').update(signedContent, 'utf8').digest();
-
-  // 4. Fetch (or use cached) Manus public key.
+  // 3. Fetch (or use cached) Manus public key.
   let publicKeyPem: string;
   try {
     publicKeyPem = await getManusPublicKey();
@@ -113,11 +110,11 @@ export async function verifyManusWebhookSignature(
     return false;
   }
 
-  // 5. Verify the RSA-SHA256 signature.
+  // 4. Verify the RSA-SHA256 signature (createVerify handles SHA256 hashing internally).
   try {
     const signatureBuffer = Buffer.from(signature, 'base64');
     const verifier = createVerify('RSA-SHA256');
-    verifier.update(contentHash);
+    verifier.update(signedContent, 'utf8');
     const result = verifier.verify(publicKeyPem, signatureBuffer);
     console.log('[ManusVerifier] Signature verify result:', result);
     return result;
