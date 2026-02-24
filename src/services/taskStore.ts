@@ -9,6 +9,7 @@ export interface TaskRecord {
   agentSessionId?: string;
   progressCommentId?: string;
   questionCommentId?: string;
+  parentCommentId?: string;
 }
 
 export interface PendingTaskRecord {
@@ -85,6 +86,13 @@ export function updateProgressCommentId(taskId: string, commentId: string): void
   const record = taskStore.get(taskId);
   if (!record) return;
   taskStore.set(taskId, { ...record, progressCommentId: commentId });
+  persistMap(taskStore, TASK_STORE_PATH);
+}
+
+export function updateParentCommentId(taskId: string, commentId: string): void {
+  const record = taskStore.get(taskId);
+  if (!record) return;
+  taskStore.set(taskId, { ...record, parentCommentId: commentId });
   persistMap(taskStore, TASK_STORE_PATH);
 }
 

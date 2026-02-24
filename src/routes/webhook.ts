@@ -4,6 +4,7 @@ import {
   getTask,
   storeTask,
   updateProgressCommentId,
+  updateParentCommentId,
   updateQuestionCommentId,
 } from '../services/taskStore';
 import { getValidToken } from '../services/linearAuth';
@@ -275,16 +276,13 @@ router.post('/manus/progress', async (req: RawBodyRequest, res: Response): Promi
   );
 
   try {
-    if (stored?.progressCommentId) {
-      await updateComment(stored.progressCommentId, commentBody, accessToken);
-    } else {
-      const commentId = await postComment(issueId, commentBody, accessToken);
-      if (commentId) {
-        updateProgressCommentId(taskId, commentId);
-      }
+    const parentId = stored?.parentCommentId;
+    const commentId = await postComment(issueId, commentBody, accessToken, parentId);
+    if (commentId && !parentId) {
+      updateParentCommentId(taskId, commentId);
     }
   } catch (err) {
-    console.error('Failed to update progress comment:', err);
+    console.error('Failed to post progress comment:', err);
     res.status(502).json({ error: `Comment failed: ${(err as Error).message}` });
     return;
   }
@@ -395,14 +393,20 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
     try {
       const accessToken = await getValidToken(workspaceId);
 
-      // Post each plan step as a comment in Linear
+      // Post progress as a threaded reply under the parent comment
       const commentBody = formatProgressComment(
         progressDetail ?? { task_id: progressTaskId, message: progressMessage },
         progressTaskId,
       );
-      await postComment(issueId, commentBody, accessToken).catch((err) =>
-        console.error('[webhook/manus] task_progress comment failed:', err),
-      );
+      const parentId = stored?.parentCommentId;
+      const commentId = await postComment(issueId, commentBody, accessToken, parentId).catch((err) => {
+        console.error('[webhook/manus] task_progress comment failed:', err);
+        return null;
+      });
+      if (commentId && !parentId) {
+        updateParentCommentId(progressTaskId, commentId);
+        stored = getTask(progressTaskId);
+      }
 
       // Emit agent activity for the session UI
       if (stored?.agentSessionId) {
@@ -502,7 +506,8 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
   }
 
   try {
-    const commentId = await postComment(issueId, commentBody, accessToken);
+    const parentId = stored?.parentCommentId;
+    const commentId = await postComment(issueId, commentBody, accessToken, parentId);
     if (stopReason === 'ask' && commentId) {
       updateQuestionCommentId(taskId, commentId);
     }
