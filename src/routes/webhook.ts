@@ -334,18 +334,51 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
       return;
     }
 
-    const stored = getTask(progressTaskId);
-    if (stored?.agentSessionId && stored.workspaceId) {
-      try {
-        const accessToken = await getValidToken(stored.workspaceId);
-        const progressMessage = progressDetail?.message?.trim() || 'Working…';
+    let stored = getTask(progressTaskId);
+    if (!stored && progressPayload.metadata?.linear_issue_id && progressPayload.metadata.workspace_id) {
+      storeTask(progressTaskId, {
+        linearIssueId: progressPayload.metadata.linear_issue_id,
+        linearTeamId: progressPayload.metadata.linear_team_id,
+        workspaceId: progressPayload.metadata.workspace_id,
+      });
+      stored = getTask(progressTaskId);
+    }
+
+    const issueId = stored?.linearIssueId ?? progressPayload.metadata?.linear_issue_id;
+    const workspaceId = stored?.workspaceId ?? progressPayload.metadata?.workspace_id;
+
+    if (!issueId || !workspaceId) {
+      console.warn('[webhook/manus] task_progress: cannot resolve context', { progressTaskId });
+      res.json({ ok: true });
+      return;
+    }
+
+    const progressMessage = progressDetail?.message?.trim() || 'Working…';
+
+    try {
+      const accessToken = await getValidToken(workspaceId);
+
+      // Post each plan step as a comment in Linear
+      const commentBody = formatProgressComment(
+        progressDetail ?? { task_id: progressTaskId, message: progressMessage },
+        progressTaskId,
+      );
+      await postComment(issueId, commentBody, accessToken).catch((err) =>
+        console.error('[webhook/manus] task_progress comment failed:', err),
+      );
+
+      // Emit agent activity for the session UI
+      if (stored?.agentSessionId) {
         await createAgentActivity(stored.agentSessionId, {
-          type: 'thought',
-          body: progressMessage,
-        }, accessToken, { ephemeral: true }).catch(() => {});
-      } catch (err) {
-        console.error('[webhook/manus] task_progress activity failed:', err);
+          type: 'action',
+          action: 'Manus progress',
+          result: progressMessage,
+        }, accessToken).catch((err) =>
+          console.error('[webhook/manus] task_progress activity failed:', err),
+        );
       }
+    } catch (err) {
+      console.error('[webhook/manus] task_progress failed:', err);
     }
 
     console.log('[webhook/manus] task_progress acknowledged:', progressTaskId);
@@ -353,9 +386,24 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
     return;
   }
 
+  // Handle task_stopped (and legacy fallback) events
+  if (eventType && eventType !== 'task_stopped') {
+    console.warn('[webhook/manus] Unrecognized event_type:', eventType);
+    res.json({ ok: true, ignored: true, reason: `unknown event_type: ${eventType}` });
+    return;
+  }
+
   const payload = req.body as ManusStoppedPayload;
   const detail = payload.task_detail;
   const taskId = detail?.task_id ?? payload.task_id;
+
+  console.log('[webhook/manus] task_stopped received', {
+    taskId: taskId ?? '(missing)',
+    stopReason: detail?.stop_reason ?? '(none)',
+    hasDetail: !!detail,
+    hasMessage: !!detail?.message,
+    legacyStatus: payload.status ?? '(none)',
+  });
 
   if (!taskId) {
     res.status(400).json({ error: 'Missing required field: task_id' });
@@ -367,6 +415,15 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
   const issueId = stored?.linearIssueId ?? payload.metadata?.linear_issue_id;
   const teamId = stored?.linearTeamId ?? payload.metadata?.linear_team_id;
   const workspaceId = stored?.workspaceId ?? payload.metadata?.workspace_id;
+
+  console.log('[webhook/manus] task_stopped context', {
+    taskId,
+    hasStoredRecord: !!stored,
+    issueId: issueId ?? '(missing)',
+    teamId: teamId ?? '(missing)',
+    workspaceId: workspaceId ?? '(missing)',
+    agentSessionId: stored?.agentSessionId ?? '(none)',
+  });
 
   if (!issueId || !workspaceId) {
     res.status(422).json({
