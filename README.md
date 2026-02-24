@@ -175,3 +175,5 @@ Manus signs outgoing webhooks with RSA-SHA256 using its own private key. The bri
 
 - **In-memory task store:** The mapping between Manus task IDs and Linear issue IDs is stored in memory only. If the service restarts while a Manus task is in flight (between webhook receipt and Manus callback), the bridge will lose track of which issue to update. For production use at scale, this should be replaced with a persistent store (e.g. Redis or a database).
 - **Single workspace:** The current implementation supports one Linear workspace installation. Multi-workspace support would require iterating over all installations when routing Manus callbacks.
+
+<!-- This is a test change to ensure the file is modified for commit. -->
