@@ -173,6 +173,14 @@ export function findPendingTaskByIssue(
   return undefined;
 }
 
+export function getAllTasks(): Array<[string, TaskRecord]> {
+  return Array.from(taskStore.entries());
+}
+
+export function getAllPendingTasks(): Array<[string, PendingTaskRecord]> {
+  return Array.from(pendingTaskStore.entries());
+}
+
 export function consumePendingTask(commentId: string): PendingTaskRecord | undefined {
   const record = pendingTaskStore.get(commentId);
   if (record) {
