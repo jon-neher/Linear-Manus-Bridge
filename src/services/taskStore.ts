@@ -127,6 +127,21 @@ export function findTaskByQuestionCommentId(commentId: string): string | undefin
   return undefined;
 }
 
+export function removeTasksByIssue(issueId: string): number {
+  let removed = 0;
+  for (const [taskId, record] of taskStore.entries()) {
+    if (record.linearIssueId === issueId) {
+      taskStore.delete(taskId);
+      removed++;
+    }
+  }
+  if (removed > 0) {
+    persistMap(taskStore, TASK_STORE_PATH);
+    console.log(`[taskStore] Cleaned up ${removed} stale task record(s) for issue ${issueId}`);
+  }
+  return removed;
+}
+
 export function storePendingTask(commentId: string, record: PendingTaskRecord): void {
   pendingTaskStore.set(commentId, { ...record });
   persistMap(pendingTaskStore, PENDING_STORE_PATH);

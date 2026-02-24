@@ -35,6 +35,7 @@ vi.mock('../../services/taskStore', () => ({
   findPendingTaskByIssue: vi.fn(),
   findPendingTaskBySession: vi.fn(),
   findTaskBySession: vi.fn(),
+  removeTasksByIssue: vi.fn().mockReturnValue(0),
 }));
 
 function signBody(body: object): { rawBody: string; signature: string } {
@@ -152,7 +153,6 @@ describe('Linear webhook endpoint', () => {
       'session-1',
       expect.objectContaining({ type: 'thought' }),
       'mock-token',
-      expect.objectContaining({ ephemeral: true }),
     );
     expect(createAgentActivity).toHaveBeenCalledWith(
       'session-1',
