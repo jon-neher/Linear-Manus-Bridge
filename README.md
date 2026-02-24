@@ -54,6 +54,7 @@ All variables must be set in your Railway service's **Variables** tab.
 | `LINEAR_IN_PROGRESS_STATE` | No | Name of the Linear workflow state to set when a task starts. Defaults to `In Progress` |
 | `LINEAR_COMPLETION_STATE` | No | Name of the Linear workflow state to set when a task completes. Defaults to `Done` |
 | `LINEAR_FAILURE_STATE` | No | Name of the Linear workflow state to set when a task fails. Defaults to `Cancelled` |
+| `LINEAR_CANCELLED_STATE` | No | Name of the Linear workflow state to set when a user stops a task. Defaults to `Cancelled` |
 | `LINEAR_NEEDS_INPUT_STATE` | No | Name of the Linear workflow state to set when Manus needs more information. Defaults to `Needs Input` |
 | `MANUS_AGENT_PROFILE` | No | Manus agent profile to use. Defaults to `manus-1.6` |
 | `MANUS_TASK_MODE` | No | Manus task mode. Defaults to `agent` |

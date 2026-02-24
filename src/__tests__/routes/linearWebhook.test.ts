@@ -540,6 +540,71 @@ describe('Linear webhook endpoint', () => {
     expect(replyToTask).toHaveBeenCalledWith('manus-123', 'Please add tests');
   });
 
+  it('AgentSessionEvent prompted: forwards stop when task is in progress', async () => {
+    const { getValidToken } = await import('../../services/linearAuth');
+    const { replyToTask } = await import('../../services/manusClient');
+    const { findTaskBySession, findPendingTaskBySession } = await import('../../services/taskStore');
+    const { createAgentActivity } = await import('../../services/linearAgentSession');
+
+    (getValidToken as ReturnType<typeof vi.fn>).mockResolvedValue('mock-token');
+    (findTaskBySession as ReturnType<typeof vi.fn>).mockReturnValue('manus-123');
+    (findPendingTaskBySession as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    (replyToTask as ReturnType<typeof vi.fn>).mockResolvedValue({
+      taskId: 'manus-123', taskUrl: 'https://manus.ai/tasks/123',
+    });
+
+    const payload = {
+      type: 'AgentSessionEvent',
+      action: 'prompted',
+      organizationId: 'org-1',
+      agentSession: { id: 'session-1' },
+      agentActivity: { id: 'activity-1', body: 'stop' },
+    };
+    const { rawBody, signature } = signBody(payload);
+
+    const res = await request(app)
+      .post('/linear/webhook')
+      .set('Content-Type', 'application/json')
+      .set('linear-signature', signature)
+      .send(rawBody);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, stopped: true });
+    expect(replyToTask).toHaveBeenCalledWith('manus-123', 'stop');
+    expect(createAgentActivity).not.toHaveBeenCalled();
+  });
+
+  it('AgentSessionEvent prompted: ignores stop when no Manus task found', async () => {
+    const { getValidToken } = await import('../../services/linearAuth');
+    const { replyToTask } = await import('../../services/manusClient');
+    const { findTaskBySession, findPendingTaskBySession } = await import('../../services/taskStore');
+    const { createAgentActivity } = await import('../../services/linearAgentSession');
+
+    (getValidToken as ReturnType<typeof vi.fn>).mockResolvedValue('mock-token');
+    (findTaskBySession as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    (findPendingTaskBySession as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+
+    const payload = {
+      type: 'AgentSessionEvent',
+      action: 'prompted',
+      organizationId: 'org-1',
+      agentSession: { id: 'session-1' },
+      agentActivity: { id: 'activity-1', body: 'stop' },
+    };
+    const { rawBody, signature } = signBody(payload);
+
+    const res = await request(app)
+      .post('/linear/webhook')
+      .set('Content-Type', 'application/json')
+      .set('linear-signature', signature)
+      .send(rawBody);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, ignored: true, reason: 'no task in progress' });
+    expect(replyToTask).not.toHaveBeenCalled();
+    expect(createAgentActivity).not.toHaveBeenCalled();
+  });
+
   it('AgentSessionEvent prompted: returns 422 when no Manus task found', async () => {
     const { getValidToken } = await import('../../services/linearAuth');
     const { findTaskBySession, findPendingTaskBySession } = await import('../../services/taskStore');

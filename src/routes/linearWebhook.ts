@@ -349,6 +349,8 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
         payload.agentActivity?.content?.body ??
         payload.agentActivity?.body ??
         payload.promptContext;
+      const normalizedMessage = userMessage?.trim().toLowerCase();
+      const isStopCommand = normalizedMessage === 'stop';
       console.log('[linear/webhook] Handling prompted event', {
         agentSessionId,
         issueId,
@@ -442,12 +444,33 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
       });
 
       if (!manusTaskId) {
+        if (isStopCommand) {
+          res.json({ ok: true, ignored: true, reason: 'no task in progress' });
+          return;
+        }
         console.error('[linear/webhook] No Manus task found for session:', agentSessionId);
         await createAgentActivity(agentSessionId, {
           type: 'error',
           body: 'Could not find the associated Manus task to forward your message.',
         }, accessToken).catch(() => {});
         res.status(422).json({ error: 'No Manus task found for this session' });
+        return;
+      }
+
+      if (isStopCommand) {
+        try {
+          await replyToTask(manusTaskId, 'stop');
+          console.log('[linear/webhook] prompted: forwarded stop to Manus task:', manusTaskId);
+        } catch (err) {
+          await createAgentActivity(agentSessionId, {
+            type: 'error',
+            body: `Failed to forward stop to Manus: ${(err as Error).message}`,
+          }, accessToken).catch(() => {});
+          res.status(502).json({ error: (err as Error).message });
+          return;
+        }
+
+        res.json({ ok: true, stopped: true });
         return;
       }
 
