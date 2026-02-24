@@ -3,6 +3,8 @@ import oauthRouter from './routes/oauth';
 import webhookRouter from './routes/webhook';
 import linearWebhookRouter from './routes/linearWebhook';
 import manusWebhooksRouter from './routes/manusWebhooks';
+import { getAllTasks, getAllPendingTasks } from './services/taskStore';
+import { ensureManusWebhook } from './services/manusWebhooks';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,7 +18,33 @@ app.use(
   }),
 );
 
+// Log every incoming request for debugging webhook delivery
+app.use((req, _res, next) => {
+  if (req.path !== '/health') {
+    console.log(`[http] ${req.method} ${req.path}`);
+  }
+  next();
+});
+
 app.get('/health', (_req, res) => res.json({ ok: true }));
+
+// Debug endpoint — shows current task store state (no secrets exposed)
+app.get('/debug/tasks', (_req, res) => {
+  const tasks = getAllTasks().map(([id, r]) => ({
+    taskId: id,
+    linearIssueId: r.linearIssueId,
+    hasAgentSession: !!r.agentSessionId,
+    hasProgressComment: !!r.progressCommentId,
+    hasQuestionComment: !!r.questionCommentId,
+  }));
+  const pending = getAllPendingTasks().map(([id, r]) => ({
+    key: id,
+    linearIssueId: r.linearIssueId,
+    hasAgentSession: !!r.agentSessionId,
+  }));
+  res.json({ tasks, pending });
+});
+
 app.use('/oauth', oauthRouter);
 app.use('/webhook', webhookRouter);
 app.use('/linear/webhook', linearWebhookRouter);
@@ -24,6 +52,11 @@ app.use('/manus/webhooks', manusWebhooksRouter);
 
 app.listen(PORT, () => {
   console.log(`Linear-Manus Bridge listening on port ${PORT}`);
+
+  // Register Manus webhook after server is ready (Manus sends a verification ping)
+  ensureManusWebhook().catch((err) =>
+    console.error('[startup] Manus webhook registration failed:', err),
+  );
 });
 
 export default app;

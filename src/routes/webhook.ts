@@ -199,6 +199,11 @@ function formatLegacyResult(
  * Receives Manus progress updates and updates a single Linear comment.
  */
 router.post('/manus/progress', async (req: RawBodyRequest, res: Response): Promise<void> => {
+  console.log('[webhook/manus/progress] ── Incoming request ──', {
+    event_type: (req.body as { event_type?: string }).event_type ?? '(none)',
+    bodyPreview: JSON.stringify(req.body)?.slice(0, 500),
+  });
+
   if (!(await checkManusSignature(req, res))) return;
 
   const payload = req.body as ManusProgressPayload;
@@ -285,6 +290,17 @@ router.post('/manus/progress', async (req: RawBodyRequest, res: Response): Promi
  * the issue state accordingly.
  */
 router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> => {
+  const incomingEventType = (req.body as { event_type?: string }).event_type;
+  const incomingTaskId =
+    (req.body as { task_id?: string }).task_id ??
+    (req.body as { task_detail?: { task_id?: string } }).task_detail?.task_id ??
+    (req.body as { progress_detail?: { task_id?: string } }).progress_detail?.task_id;
+  console.log('[webhook/manus] ── Incoming request ──', {
+    event_type: incomingEventType ?? '(none)',
+    task_id: incomingTaskId ?? '(none)',
+    bodyPreview: JSON.stringify(req.body)?.slice(0, 500),
+  });
+
   if (!(await checkManusSignature(req, res))) return;
 
   // Handle task_created events (acknowledge and set external URL)
