@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   createAgentActivity,
   updateAgentSession,
+  emitAuthElicitation,
 } from '../../services/linearAgentSession';
 
 const TOKEN = 'test-access-token';
@@ -214,6 +215,65 @@ describe('linearAgentSession', () => {
           TOKEN,
         ),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('emitAuthElicitation', () => {
+    it('emits elicitation with auth signal and metadata', async () => {
+      globalThis.fetch = mockFetchJson({
+        agentActivityCreate: { success: true, agentActivity: { id: 'activity-auth' } },
+      });
+
+      const result = await emitAuthElicitation(
+        'session-1',
+        'https://manus.ai/auth',
+        TOKEN,
+        { providerName: 'GitHub' },
+      );
+
+      expect(result).toBe('activity-auth');
+      expectGqlCall(globalThis.fetch, {
+        input: {
+          agentSessionId: 'session-1',
+          content: { type: 'elicitation', body: 'Please link your GitHub account to continue.' },
+          signal: 'auth',
+          signalMetadata: {
+            url: 'https://manus.ai/auth',
+            providerName: 'GitHub',
+            userId: undefined,
+          },
+        },
+      });
+    });
+
+    it('uses generic message when providerName not provided', async () => {
+      globalThis.fetch = mockFetchJson({
+        agentActivityCreate: { success: true, agentActivity: { id: 'activity-auth2' } },
+      });
+
+      await emitAuthElicitation('session-1', 'https://manus.ai/auth', TOKEN);
+
+      const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+      expect(body.variables.input.content.body).toBe('Please link your account to continue.');
+    });
+
+    it('includes userId in signalMetadata when provided', async () => {
+      globalThis.fetch = mockFetchJson({
+        agentActivityCreate: { success: true, agentActivity: { id: 'activity-auth3' } },
+      });
+
+      await emitAuthElicitation(
+        'session-1',
+        'https://manus.ai/auth',
+        TOKEN,
+        { providerName: 'GitHub', userId: 'user-123' },
+      );
+
+      expectGqlCall(globalThis.fetch, {
+        input: expect.objectContaining({
+          signalMetadata: expect.objectContaining({ userId: 'user-123' }),
+        }),
+      });
     });
   });
 });

@@ -30,6 +30,7 @@ import {
 } from '../services/constants';
 import {
   createAgentActivity,
+  emitAuthElicitation,
   updateAgentSession,
 } from '../services/linearAgentSession';
 
@@ -282,6 +283,62 @@ function parseCandidateRepositories(): Array<{ hostname: string; repositoryFullN
     .filter((r): r is { hostname: string; repositoryFullName: string } => r !== null);
 }
 
+/**
+ * Check if an error message indicates an auth/authorization issue.
+ * Returns the provider name if detected, or null if not an auth error.
+ */
+function detectAuthError(errorMessage: string): string | null {
+  const lower = errorMessage.toLowerCase();
+
+  // Check for GitHub auth-related patterns
+  if (lower.includes('github') && (lower.includes('auth') || lower.includes('unauthorized') || lower.includes('not connected'))) {
+    return 'GitHub';
+  }
+  if (lower.includes('repository access') || lower.includes('repo access')) {
+    return 'GitHub';
+  }
+  if (lower.includes('private repository') && lower.includes('access')) {
+    return 'GitHub';
+  }
+
+  // Generic auth patterns
+  if (lower.includes('authentication required') || lower.includes('account linking')) {
+    return 'Manus';
+  }
+
+  return null;
+}
+
+/**
+ * Handle an auth error by emitting an auth elicitation if configured.
+ * Returns true if handled, false if not an auth error or not configured.
+ */
+async function handleAuthError(
+  agentSessionId: string | undefined,
+  errorMessage: string,
+  accessToken: string,
+): Promise<boolean> {
+  if (!agentSessionId) return false;
+
+  const authUrl = process.env.MANUS_AUTH_URL;
+  if (!authUrl) return false;
+
+  const provider = detectAuthError(errorMessage);
+  if (!provider) return false;
+
+  console.log('[linear/webhook] Detected auth error for provider:', provider);
+
+  try {
+    await emitAuthElicitation(agentSessionId, authUrl, accessToken, {
+      providerName: provider,
+    });
+    return true;
+  } catch (err) {
+    console.error('[linear/webhook] Failed to emit auth elicitation:', err);
+    return false;
+  }
+}
+
 async function finalizePendingTask(
   pending: PendingTaskRecord,
   selectedProfile: string,
@@ -514,19 +571,24 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
         } catch (err) {
           const message = (err as Error).message;
           console.error('[linear/webhook] prompted: finalizePendingTask failed:', message);
-          await createAgentActivity(agentSessionId, {
-            type: 'error',
-            body: `Manus task creation failed: ${message}`,
-          }, accessToken).catch((err) =>
-            console.error('[linear/webhook] Failed to emit error activity:', err),
-          );
-          await postComment(
-            pendingSelection.record.linearIssueId,
-            `Manus task creation failed: ${message}`,
-            accessToken,
-          ).catch((err) =>
-            console.error('[linear/webhook] Failed to post failure comment:', err),
-          );
+
+          // Check if this is an auth error that we can handle
+          const handled = await handleAuthError(agentSessionId, message, accessToken);
+          if (!handled) {
+            await createAgentActivity(agentSessionId, {
+              type: 'error',
+              body: `Manus task creation failed: ${message}`,
+            }, accessToken).catch((e) =>
+              console.error('[linear/webhook] Failed to emit error activity:', e),
+            );
+            await postComment(
+              pendingSelection.record.linearIssueId,
+              `Manus task creation failed: ${message}`,
+              accessToken,
+            ).catch((e) =>
+              console.error('[linear/webhook] Failed to post failure comment:', e),
+            );
+          }
           res.status(502).json({ error: message });
         }
         return;
@@ -817,14 +879,20 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
         );
         res.json({ ok: true, taskId: result.taskId });
       } catch (err) {
-        await postComment(
-          pendingRecord.linearIssueId,
-          `Manus task creation failed: ${(err as Error).message}`,
-          accessToken,
-        ).catch((e) =>
-          console.error('[linear/webhook] Failed to post failure comment:', e),
-        );
-        res.status(502).json({ error: (err as Error).message });
+        const message = (err as Error).message;
+
+        // Check if this is an auth error that we can handle
+        const handled = await handleAuthError(pendingRecord.agentSessionId, message, accessToken);
+        if (!handled) {
+          await postComment(
+            pendingRecord.linearIssueId,
+            `Manus task creation failed: ${message}`,
+            accessToken,
+          ).catch((e) =>
+            console.error('[linear/webhook] Failed to post failure comment:', e),
+          );
+        }
+        res.status(502).json({ error: message });
         return;
       }
       return;

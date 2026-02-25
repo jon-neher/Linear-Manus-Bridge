@@ -114,3 +114,32 @@ export async function updateAgentSession(
     accessToken,
   );
 }
+
+/**
+ * Emit an auth elicitation to prompt the user to link an account.
+ * This shows a "Link Account" button in Linear's UI.
+ */
+export async function emitAuthElicitation(
+  agentSessionId: string,
+  authUrl: string,
+  accessToken: string,
+  options: { providerName?: string; userId?: string } = {},
+): Promise<string | null> {
+  const body = options.providerName
+    ? `Please link your ${options.providerName} account to continue.`
+    : 'Please link your account to continue.';
+
+  return createAgentActivity(
+    agentSessionId,
+    { type: 'elicitation', body },
+    accessToken,
+    {
+      signal: 'auth',
+      signalMetadata: {
+        url: authUrl,
+        providerName: options.providerName,
+        userId: options.userId,
+      },
+    },
+  );
+}
