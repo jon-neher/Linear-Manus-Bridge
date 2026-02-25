@@ -38,4 +38,45 @@ describe('manusAttachments', () => {
     expect(createFileRecord).toHaveBeenCalledWith('data.txt');
     expect(uploadFileToManus).toHaveBeenCalled();
   });
+
+  it('filters out malformed URLs with invalid characters', async () => {
+    const attachments = await buildManusAttachments({
+      id: 'issue-1',
+      title: 'Test',
+      description: 'See http://example.com> for details',
+      teamId: 'team-1',
+      comments: [],
+    });
+
+    // The > character would be captured by regex but URL() would reject it
+    expect(attachments).toEqual([]);
+  });
+
+  it('filters out URLs with invalid hostname structure', async () => {
+    const attachments = await buildManusAttachments({
+      id: 'issue-1',
+      title: 'Test',
+      description: 'Invalid: http://.com and http://localhost',
+      teamId: 'team-1',
+      comments: [],
+    });
+
+    // .com has empty first label, localhost has only one label
+    expect(attachments).toEqual([]);
+  });
+
+  it('accepts valid URLs with proper hostnames', async () => {
+    const attachments = await buildManusAttachments({
+      id: 'issue-1',
+      title: 'Test',
+      description: 'Check https://github.com/owner/repo and https://manus.ai/docs',
+      teamId: 'team-1',
+      comments: [],
+    });
+
+    expect(attachments).toEqual([
+      { url: 'https://github.com/owner/repo' },
+      { url: 'https://manus.ai/docs' },
+    ]);
+  });
 });
