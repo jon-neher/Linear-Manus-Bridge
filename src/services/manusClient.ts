@@ -24,6 +24,7 @@ export interface ManusTaskOptions {
   interactiveMode?: boolean;
   attachments?: ManusAttachment[];
   connectors?: string[];
+  repositorySuggestions?: Array<{ hostname: string; repositoryFullName: string; confidence: number }>;
 }
 
 export type ManusAttachment =
@@ -73,6 +74,7 @@ async function requestCreateTask(
       interactiveMode: options.interactiveMode ?? true,
       attachments: options.attachments,
       connectors: options.connectors,
+      repositorySuggestions: options.repositorySuggestions,
     }),
   });
 
