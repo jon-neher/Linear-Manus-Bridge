@@ -5,6 +5,7 @@ interface ManusTaskResponse {
   task_title?: string;
   task_url?: string;
   share_url?: string;
+  pull_request_url?: string;
 }
 
 interface ManusFileResponse {

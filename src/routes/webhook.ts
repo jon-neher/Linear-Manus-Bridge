@@ -40,6 +40,7 @@ interface ManusTaskDetail {
   task_id: string;
   task_title?: string;
   task_url?: string;
+  pull_request_url?: string;
   message?: string;
   attachments?: ManusTaskAttachment[];
   stop_reason?: ManusStopReason;
@@ -80,6 +81,7 @@ interface ManusCreatedDetail {
   task_id: string;
   task_title?: string;
   task_url?: string;
+  pull_request_url?: string;
 }
 
 interface ManusCreatedPayload {
@@ -351,13 +353,21 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
     if (stored?.agentSessionId && stored.workspaceId) {
       try {
         const accessToken = await getValidToken(stored.workspaceId);
+
+        // Build external URLs list (task URL + optional PR URL)
+        const externalUrls: Array<{ label: string; url: string }> = [];
         if (createdDetail?.task_url) {
-          await updateAgentSession(stored.agentSessionId, {
-            externalUrls: [{ label: 'View in Manus', url: createdDetail.task_url }],
-          }, accessToken).catch((err) =>
-            console.error('[webhook/manus] Failed to update session external URL:', err),
+          externalUrls.push({ label: 'View in Manus', url: createdDetail.task_url });
+        }
+        if (createdDetail?.pull_request_url) {
+          externalUrls.push({ label: 'View Pull Request', url: createdDetail.pull_request_url });
+        }
+        if (externalUrls.length > 0) {
+          await updateAgentSession(stored.agentSessionId, { externalUrls }, accessToken).catch((err) =>
+            console.error('[webhook/manus] Failed to update session external URLs:', err),
           );
         }
+
         if (createdDetail?.task_title) {
           await createAgentActivity(stored.agentSessionId, {
             type: 'thought',
@@ -583,17 +593,33 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
       // Task completed — emit a final response
       const resultBody = detail?.message?.trim() || payload.result || 'Task completed.';
       const taskUrl = detail?.task_url;
+      const prUrl = detail?.pull_request_url;
       const attachmentLinks = detail?.attachments?.length
         ? '\n\n**Attachments:**\n' + detail.attachments.map((a) => `- [${a.file_name}](${a.url})`).join('\n')
         : '';
+      const prLink = prUrl ? `\n\n**Pull Request:** [${prUrl}](${prUrl})` : '';
       const viewLink = taskUrl ? `\n\n[View full results in Manus](${taskUrl})` : '';
 
       await createAgentActivity(sessionId, {
         type: 'response',
-        body: `${resultBody}${attachmentLinks}${viewLink}`,
+        body: `${resultBody}${attachmentLinks}${prLink}${viewLink}`,
       }, accessToken).catch((err) =>
         console.error('[webhook/manus] Failed to emit response activity:', err),
       );
+
+      // Update external URLs to include PR if present
+      if (prUrl || taskUrl) {
+        const externalUrls: Array<{ label: string; url: string }> = [];
+        if (taskUrl) {
+          externalUrls.push({ label: 'View in Manus', url: taskUrl });
+        }
+        if (prUrl) {
+          externalUrls.push({ label: 'View Pull Request', url: prUrl });
+        }
+        await updateAgentSession(sessionId, { externalUrls }, accessToken).catch((err) =>
+          console.error('[webhook/manus] Failed to update session external URLs:', err),
+        );
+      }
     }
   }
 
