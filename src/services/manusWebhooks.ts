@@ -1,6 +1,8 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { MANUS_API_BASE_URL } from './constants';
+import { fetchWithTimeout } from './fetchWithTimeout';
+import { isTimeoutError, handleTimeoutError } from './timeoutErrorHandler';
 
 interface CreateWebhookResponse {
   webhook_id: string;
@@ -36,45 +38,60 @@ export async function createManusWebhook(url: string): Promise<{ webhookId: stri
     throw new Error('MANUS_API_KEY is not configured');
   }
 
-  const response = await fetch(`${MANUS_API_BASE_URL}/v1/webhooks`, {
-    method: 'POST',
-    headers: {
-      API_KEY: apiKey,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ webhook: { url } }),
-  });
+  try {
+    const response = await fetchWithTimeout(`${MANUS_API_BASE_URL}/v1/webhooks`, {
+      method: 'POST',
+      headers: {
+        API_KEY: apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ webhook: { url } }),
+    });
 
-  if (!response.ok) {
-    const text = await response.text();
-    // 409 means the webhook URL already exists — treat as success
-    if (response.status === 409) {
-      console.log('[manusWebhooks] Webhook URL already registered (409) — reusing existing');
-      return { webhookId: '__existing__' };
+    if (!response.ok) {
+      const text = await response.text();
+      // 409 means the webhook URL already exists — treat as success
+      if (response.status === 409) {
+        console.log('[manusWebhooks] Webhook URL already registered (409) — reusing existing');
+        return { webhookId: '__existing__' };
+      }
+      throw new Error(`Manus webhook creation failed (${response.status}): ${text}`);
     }
-    throw new Error(`Manus webhook creation failed (${response.status}): ${text}`);
-  }
 
-  const data = (await response.json()) as CreateWebhookResponse;
-  if (!data.webhook_id) {
-    throw new Error('Manus webhook creation response missing webhook_id');
-  }
+    const data = (await response.json()) as CreateWebhookResponse;
+    if (!data.webhook_id) {
+      throw new Error('Manus webhook creation response missing webhook_id');
+    }
 
-  return { webhookId: data.webhook_id };
+    return { webhookId: data.webhook_id };
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      throw new Error(handleTimeoutError('createManusWebhook', error));
+    }
+    throw error;
+  }
 }
 
 export async function deleteManusWebhook(webhookId: string): Promise<void> {
   const apiKey = process.env.MANUS_API_KEY;
   if (!apiKey) return;
 
-  const response = await fetch(`${MANUS_API_BASE_URL}/v1/webhooks/${webhookId}`, {
-    method: 'DELETE',
-    headers: { API_KEY: apiKey },
-  });
+  try {
+    const response = await fetchWithTimeout(`${MANUS_API_BASE_URL}/v1/webhooks/${webhookId}`, {
+      method: 'DELETE',
+      headers: { API_KEY: apiKey },
+    });
 
-  if (!response.ok && response.status !== 404) {
-    const text = await response.text();
-    console.warn(`[manusWebhooks] Delete webhook failed (${response.status}): ${text}`);
+    if (!response.ok && response.status !== 404) {
+      const text = await response.text();
+      console.warn(`[manusWebhooks] Delete webhook failed (${response.status}): ${text}`);
+    }
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      console.warn(`[manusWebhooks] Delete webhook timeout: ${handleTimeoutError('deleteManusWebhook', error)}`);
+    } else {
+      throw error;
+    }
   }
 }
 

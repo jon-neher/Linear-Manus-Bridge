@@ -6,6 +6,8 @@ import {
   type InstallationRecord,
 } from './installationStore';
 import { LINEAR_GRAPHQL_URL, TOKEN_REFRESH_BUFFER_MS } from './constants';
+import { fetchWithTimeout } from './fetchWithTimeout';
+import { isTimeoutError, handleTimeoutError } from './timeoutErrorHandler';
 
 export class TokenRevokedError extends Error {
   constructor(public readonly workspaceId: string, message?: string) {
@@ -35,28 +37,35 @@ async function refreshAccessToken(
     refresh_token: refreshToken,
   });
 
-  const response = await fetch('https://api.linear.app/oauth/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params.toString(),
-  });
+  try {
+    const response = await fetchWithTimeout('https://api.linear.app/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+    });
 
-  if (!response.ok) {
-    const text = await response.text();
+    if (!response.ok) {
+      const text = await response.text();
 
-    // 400/401 from the token endpoint means the refresh token is invalid/expired
-    if (response.status === 400 || response.status === 401) {
-      markInstallationInactive(workspaceId);
-      throw new TokenRevokedError(
-        workspaceId,
-        `Refresh token expired or revoked for workspace ${workspaceId}: ${text}`,
-      );
+      // 400/401 from the token endpoint means the refresh token is invalid/expired
+      if (response.status === 400 || response.status === 401) {
+        markInstallationInactive(workspaceId);
+        throw new TokenRevokedError(
+          workspaceId,
+          `Refresh token expired or revoked for workspace ${workspaceId}: ${text}`,
+        );
+      }
+
+      throw new Error(`Token refresh failed (${response.status}): ${text}`);
     }
 
-    throw new Error(`Token refresh failed (${response.status}): ${text}`);
+    return response.json() as Promise<LinearTokenResponse>;
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      throw new Error(handleTimeoutError('refreshAccessToken', error));
+    }
+    throw error;
   }
-
-  return response.json() as Promise<LinearTokenResponse>;
 }
 
 // Guard against concurrent refresh attempts for the same workspace.
@@ -137,29 +146,10 @@ export async function linearApiRequest<T = unknown>(
   workspaceId: string,
   body: { query: string; variables?: Record<string, unknown> },
 ): Promise<T> {
-  let accessToken = await getValidToken(workspaceId);
+  try {
+    let accessToken = await getValidToken(workspaceId);
 
-  let response = await fetch(LINEAR_GRAPHQL_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify(body),
-  });
-
-  // On 401, force a token refresh and retry once
-  if (response.status === 401) {
-    const record = getInstallationByWorkspace(workspaceId);
-    if (!record) {
-      throw new TokenRevokedError(workspaceId);
-    }
-
-    // Force refresh by updating record with 0 expiry (it's in-memory currently, but updateInstallationTokens persists it)
-    updateInstallationTokens(workspaceId, record.accessToken, record.refreshToken, 0);
-    accessToken = await getValidToken(workspaceId);
-
-    response = await fetch(LINEAR_GRAPHQL_URL, {
+    let response = await fetchWithTimeout(LINEAR_GRAPHQL_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -168,19 +158,45 @@ export async function linearApiRequest<T = unknown>(
       body: JSON.stringify(body),
     });
 
+    // On 401, force a token refresh and retry once
     if (response.status === 401) {
-      markInstallationInactive(workspaceId);
-      throw new TokenRevokedError(
-        workspaceId,
-        `Persistent 401 after token refresh for workspace ${workspaceId}`,
-      );
+      const record = getInstallationByWorkspace(workspaceId);
+      if (!record) {
+        throw new TokenRevokedError(workspaceId);
+      }
+
+      // Force refresh by updating record with 0 expiry (it's in-memory currently, but updateInstallationTokens persists it)
+      updateInstallationTokens(workspaceId, record.accessToken, record.refreshToken, 0);
+      accessToken = await getValidToken(workspaceId);
+
+      response = await fetchWithTimeout(LINEAR_GRAPHQL_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (response.status === 401) {
+        markInstallationInactive(workspaceId);
+        throw new TokenRevokedError(
+          workspaceId,
+          `Persistent 401 after token refresh for workspace ${workspaceId}`,
+        );
+      }
     }
-  }
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Linear API request failed (${response.status}): ${text}`);
-  }
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Linear API request failed (${response.status}): ${text}`);
+    }
 
-  return response.json() as Promise<T>;
+    return response.json() as Promise<T>;
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      throw new Error(handleTimeoutError('linearApiRequest', error));
+    }
+    throw error;
+  }
 }

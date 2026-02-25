@@ -29,5 +29,13 @@ export const PUBLIC_KEY_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 // OAuth state TTL
 export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
+// Request timeout for outgoing HTTP requests
+export const REQUEST_TIMEOUT_MS = parseInt(process.env.REQUEST_TIMEOUT_MS ?? '30000', 10);
+
 // Encryption
 export const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
+
+// Validate timeout is a positive number
+if (REQUEST_TIMEOUT_MS <= 0) {
+  throw new Error('REQUEST_TIMEOUT_MS must be a positive number');
+}

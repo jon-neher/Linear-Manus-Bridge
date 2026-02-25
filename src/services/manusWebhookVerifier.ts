@@ -4,6 +4,8 @@ import {
   MAX_WEBHOOK_TIMESTAMP_AGE_SECONDS,
   PUBLIC_KEY_CACHE_TTL_MS,
 } from './constants';
+import { fetchWithTimeout } from './fetchWithTimeout';
+import { isTimeoutError, handleTimeoutError } from './timeoutErrorHandler';
 
 const MANUS_PUBLIC_KEY_URL = `${MANUS_API_BASE_URL}/v1/webhook/public_key`;
 
@@ -29,23 +31,30 @@ async function getManusPublicKey(): Promise<string> {
     throw new Error('MANUS_API_KEY is not configured; cannot fetch Manus public key');
   }
 
-  const response = await fetch(MANUS_PUBLIC_KEY_URL, {
-    headers: { API_KEY: apiKey },
-  });
+  try {
+    const response = await fetchWithTimeout(MANUS_PUBLIC_KEY_URL, {
+      headers: { API_KEY: apiKey },
+    });
 
-  if (!response.ok) {
-    throw new Error(
-      `Failed to fetch Manus public key (${response.status}): ${await response.text()}`,
-    );
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch Manus public key (${response.status}): ${await response.text()}`,
+      );
+    }
+
+    const data = (await response.json()) as { public_key: string };
+    if (!data.public_key) {
+      throw new Error('Manus public key response missing "public_key" field');
+    }
+
+    publicKeyCache = { pem: data.public_key, fetchedAt: now };
+    return data.public_key;
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      throw new Error(handleTimeoutError('getManusPublicKey', error));
+    }
+    throw error;
   }
-
-  const data = (await response.json()) as { public_key: string };
-  if (!data.public_key) {
-    throw new Error('Manus public key response missing "public_key" field');
-  }
-
-  publicKeyCache = { pem: data.public_key, fetchedAt: now };
-  return data.public_key;
 }
 
 /**

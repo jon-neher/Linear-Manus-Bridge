@@ -8,6 +8,8 @@ import {
   LINEAR_GRAPHQL_URL,
   OAUTH_SCOPES,
 } from '../services/constants';
+import { fetchWithTimeout } from '../services/fetchWithTimeout';
+import { isTimeoutError, handleTimeoutError } from '../services/timeoutErrorHandler';
 
 const router = Router();
 
@@ -91,7 +93,7 @@ router.get('/callback', async (req: Request, res: Response): Promise<void> => {
       code,
     });
 
-    const tokenResponse = await fetch(LINEAR_TOKEN_URL, {
+    const tokenResponse = await fetchWithTimeout(LINEAR_TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params.toString(),
@@ -104,7 +106,11 @@ router.get('/callback', async (req: Request, res: Response): Promise<void> => {
 
     tokenData = await tokenResponse.json() as LinearTokenResponse;
   } catch (err) {
-    res.status(502).json({ error: (err as Error).message });
+    if (isTimeoutError(err)) {
+      res.status(504).json({ error: handleTimeoutError('oauth/callback token exchange', err) });
+    } else {
+      res.status(502).json({ error: (err as Error).message });
+    }
     return;
   }
 
@@ -117,7 +123,7 @@ router.get('/callback', async (req: Request, res: Response): Promise<void> => {
       organization { id name }
     }`;
 
-    const gqlResponse = await fetch(LINEAR_GRAPHQL_URL, {
+    const gqlResponse = await fetchWithTimeout(LINEAR_GRAPHQL_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -144,7 +150,11 @@ router.get('/callback', async (req: Request, res: Response): Promise<void> => {
       throw new Error('Could not retrieve workspace ID from organization query');
     }
   } catch (err) {
-    res.status(502).json({ error: (err as Error).message });
+    if (isTimeoutError(err)) {
+      res.status(504).json({ error: handleTimeoutError('oauth/callback graphql query', err) });
+    } else {
+      res.status(502).json({ error: (err as Error).message });
+    }
     return;
   }
 
