@@ -5,9 +5,7 @@ import {
   markInstallationInactive,
   type InstallationRecord,
 } from './installationStore';
-
-const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000; // 5-minute buffer before expiry
-const LINEAR_GRAPHQL_URL = 'https://api.linear.app/graphql';
+import { LINEAR_GRAPHQL_URL, TOKEN_REFRESH_BUFFER_MS } from './constants';
 
 export class TokenRevokedError extends Error {
   constructor(public readonly workspaceId: string, message?: string) {

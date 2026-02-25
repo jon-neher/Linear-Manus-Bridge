@@ -1,7 +1,6 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
-
-const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+import { OAUTH_STATE_TTL_MS } from './constants';
 
 function getDataDir(): string {
   const dir = process.env.DATA_DIR ?? process.cwd();
@@ -36,7 +35,7 @@ function pruneExpired(store: StateStore): StateStore {
   const now = Date.now();
   const pruned: StateStore = {};
   for (const [state, ts] of Object.entries(store)) {
-    if (now - ts <= STATE_TTL_MS) {
+    if (now - ts <= OAUTH_STATE_TTL_MS) {
       pruned[state] = ts;
     }
   }
@@ -57,5 +56,5 @@ export function consumeState(state: string): boolean {
   delete store[state];
   persist(store);
 
-  return Date.now() - ts <= STATE_TTL_MS;
+  return Date.now() - ts <= OAUTH_STATE_TTL_MS;
 }
