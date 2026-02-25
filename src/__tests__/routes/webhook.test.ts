@@ -42,6 +42,8 @@ describe('Manus webhook endpoint', () => {
         updateParentCommentId: vi.fn(),
         updateQuestionCommentId: vi.fn(),
         consumeTask: vi.fn(),
+        completeAllPlanSteps: vi.fn().mockReturnValue([]),
+        clearPlan: vi.fn(),
       }));
       vi.doMock('../../services/linearAuth', () => ({
         getValidToken: vi.fn().mockResolvedValue('mock-token'),
@@ -111,6 +113,8 @@ describe('Manus webhook endpoint', () => {
         updateParentCommentId: vi.fn(),
         updateQuestionCommentId: vi.fn(),
         consumeTask: vi.fn(),
+        completeAllPlanSteps: vi.fn().mockReturnValue([]),
+        clearPlan: vi.fn(),
       }));
       vi.doMock('../../services/linearAuth', () => ({
         getValidToken: vi.fn().mockResolvedValue('mock-token'),
@@ -179,6 +183,8 @@ describe('Manus webhook endpoint', () => {
         updateProgressCommentId: vi.fn(),
         updateParentCommentId: vi.fn(),
         updateQuestionCommentId: vi.fn(),
+        completeAllPlanSteps: vi.fn().mockReturnValue([]),
+        clearPlan: vi.fn(),
       }));
       vi.doMock('../../services/linearAuth', () => ({
         getValidToken: vi.fn().mockResolvedValue('mock-token'),
