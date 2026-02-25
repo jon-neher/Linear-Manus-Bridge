@@ -24,6 +24,7 @@ vi.mock('../../services/manusAttachments', () => ({
 vi.mock('../../services/linearAgentSession', () => ({
   createAgentActivity: vi.fn().mockResolvedValue(null),
   updateAgentSession: vi.fn().mockResolvedValue(undefined),
+  emitAuthElicitation: vi.fn().mockResolvedValue(null),
 }));
 vi.mock('../../services/taskStore', () => ({
   storeTask: vi.fn(),
@@ -684,5 +685,181 @@ describe('Linear webhook endpoint', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ ok: true, ignored: true });
+  });
+});
+
+describe('Auth signal handling', () => {
+  let app: Express.Application;
+  let tempDir: string;
+
+  beforeAll(async () => {
+    process.env.LINEAR_WEBHOOK_SECRET = 'test-secret';
+    process.env.LINEAR_CLIENT_ID = 'test-client-id';
+    process.env.MANUS_API_KEY = 'test-manus-key';
+    process.env.ENABLE_DEBUG_ENDPOINTS = 'false';
+    process.env.MANUS_AUTH_URL = 'https://manus.ai/settings/integrations/github';
+    tempDir = mkdtempSync(join(tmpdir(), 'linear-webhook-auth-test-'));
+    process.env.DATA_DIR = tempDir;
+  });
+
+  afterAll(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('emits auth elicitation when Manus returns GitHub auth error', async () => {
+    vi.doMock('../../services/linearAuth', () => ({
+      getValidToken: vi.fn().mockResolvedValue('mock-token'),
+    }));
+    vi.doMock('../../services/linearClient', () => ({
+      getIssueDetails: vi.fn().mockResolvedValue({
+        id: 'issue-1',
+        title: 'Test',
+        description: '',
+        comments: [],
+      }),
+      findStateIdByName: vi.fn(),
+      updateIssueState: vi.fn(),
+      postComment: vi.fn(),
+    }));
+    vi.doMock('../../services/manusClient', () => ({
+      createTaskWithFallback: vi.fn().mockRejectedValue(
+        new Error('GitHub authentication required: cannot access private repository'),
+      ),
+      replyToTask: vi.fn(),
+    }));
+    vi.doMock('../../services/manusAttachments', () => ({
+      buildManusAttachments: vi.fn().mockResolvedValue([]),
+    }));
+    vi.doMock('../../services/taskStore', () => ({
+      findPendingTaskBySession: vi.fn().mockReturnValue({
+        commentId: 'comment-1',
+        record: {
+          linearIssueId: 'issue-1',
+          workspaceId: 'org-1',
+          agentSessionId: 'session-1',
+          prompt: 'test',
+          attachments: [],
+        },
+      }),
+      findTaskBySession: vi.fn().mockReturnValue(undefined),
+      consumePendingTask: vi.fn(),
+      removeTasksByIssue: vi.fn().mockReturnValue(0),
+    }));
+    vi.doMock('../../services/linearAgentSession', () => ({
+      createAgentActivity: vi.fn().mockResolvedValue('activity-auth'),
+      updateAgentSession: vi.fn(),
+      emitAuthElicitation: vi.fn().mockResolvedValue('activity-auth'),
+    }));
+
+    app = (await import('../../index')).default;
+
+    const payload = {
+      type: 'AgentSessionEvent',
+      action: 'prompted',
+      organizationId: 'org-1',
+      agentSession: { id: 'session-1' },
+      agentActivity: { body: 'manus-1.6' },
+    };
+    const { rawBody, signature } = signBody(payload);
+
+    const res = await request(app)
+      .post('/linear/webhook')
+      .set('Content-Type', 'application/json')
+      .set('linear-signature', signature)
+      .send(rawBody);
+
+    expect(res.status).toBe(502);
+
+    const { emitAuthElicitation } = await import('../../services/linearAgentSession');
+    expect(emitAuthElicitation).toHaveBeenCalledWith(
+      'session-1',
+      'https://manus.ai/settings/integrations/github',
+      'mock-token',
+      { providerName: 'GitHub' },
+    );
+  });
+
+  it('shows error activity when MANUS_AUTH_URL not configured', async () => {
+    delete process.env.MANUS_AUTH_URL;
+
+    vi.doMock('../../services/linearAuth', () => ({
+      getValidToken: vi.fn().mockResolvedValue('mock-token'),
+    }));
+    vi.doMock('../../services/linearClient', () => ({
+      getIssueDetails: vi.fn().mockResolvedValue({
+        id: 'issue-1',
+        title: 'Test',
+        description: '',
+        comments: [],
+      }),
+      findStateIdByName: vi.fn(),
+      updateIssueState: vi.fn().mockResolvedValue(undefined),
+      postComment: vi.fn().mockResolvedValue('comment-1'),
+    }));
+    vi.doMock('../../services/manusClient', () => ({
+      createTaskWithFallback: vi.fn().mockRejectedValue(
+        new Error('GitHub authentication required'),
+      ),
+      replyToTask: vi.fn(),
+    }));
+    vi.doMock('../../services/manusAttachments', () => ({
+      buildManusAttachments: vi.fn().mockResolvedValue([]),
+    }));
+    vi.doMock('../../services/taskStore', () => ({
+      findPendingTaskBySession: vi.fn().mockReturnValue({
+        commentId: 'comment-1',
+        record: {
+          linearIssueId: 'issue-1',
+          workspaceId: 'org-1',
+          agentSessionId: 'session-1',
+          prompt: 'test',
+          attachments: [],
+        },
+      }),
+      findTaskBySession: vi.fn().mockReturnValue(undefined),
+      consumePendingTask: vi.fn(),
+      removeTasksByIssue: vi.fn().mockReturnValue(0),
+    }));
+    vi.doMock('../../services/linearAgentSession', () => ({
+      createAgentActivity: vi.fn().mockResolvedValue('activity-err'),
+      updateAgentSession: vi.fn().mockResolvedValue(undefined),
+      emitAuthElicitation: vi.fn().mockResolvedValue(null),
+    }));
+
+    app = (await import('../../index')).default;
+
+    const payload = {
+      type: 'AgentSessionEvent',
+      action: 'prompted',
+      organizationId: 'org-1',
+      agentSession: { id: 'session-1' },
+      agentActivity: { body: 'manus-1.6' },
+    };
+    const { rawBody, signature } = signBody(payload);
+
+    await request(app)
+      .post('/linear/webhook')
+      .set('Content-Type', 'application/json')
+      .set('linear-signature', signature)
+      .send(rawBody);
+
+    const { emitAuthElicitation } = await import('../../services/linearAgentSession');
+    // Should NOT call emitAuthElicitation since MANUS_AUTH_URL is not set
+    expect(emitAuthElicitation).not.toHaveBeenCalled();
+
+    const { createAgentActivity } = await import('../../services/linearAgentSession');
+    expect(createAgentActivity).toHaveBeenCalledWith(
+      'session-1',
+      expect.objectContaining({
+        type: 'error',
+        body: expect.stringContaining('Manus task creation failed'),
+      }),
+      'mock-token',
+    );
   });
 });
