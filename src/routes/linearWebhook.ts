@@ -56,6 +56,12 @@ interface AgentActivityPayload {
   content?: { type?: string; body?: string };
 }
 
+interface GuidanceRule {
+  origin?: 'workspace' | 'team';
+  teamName?: string;
+  rule?: string;
+}
+
 interface AgentSessionEventPayload {
   type: 'AgentSessionEvent';
   action: 'created' | 'prompted';
@@ -63,6 +69,7 @@ interface AgentSessionEventPayload {
   agentSession: AgentSessionWebhookPayload;
   agentActivity?: AgentActivityPayload | null;
   promptContext?: string | null;
+  guidance?: GuidanceRule[] | null;
   webhookId?: string;
   webhookTimestamp?: number;
 }
@@ -579,11 +586,27 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
           await createAgentActivity(agentSessionId, {
             type: 'error',
             body: `Failed to fetch issue details: ${(err as Error).message}`,
-          }, accessToken).catch(() => {});
+          }, accessToken).catch((e) =>
+            console.error('[linear/webhook] Failed to emit error activity:', e),
+          );
         }
         res.status(502).json({ error: (err as Error).message });
         return;
       }
+    }
+
+    // Append structured guidance if provided separately from promptContext
+    if (payload.guidance && payload.guidance.length > 0) {
+      const guidanceLines = ['', '---', '**Workspace/Team Guidance:**', ''];
+      for (const rule of payload.guidance) {
+        const origin = rule.origin ?? 'workspace';
+        const source = rule.teamName ?? 'workspace';
+        if (rule.rule) {
+          guidanceLines.push(`[${origin}: ${source}] ${rule.rule}`);
+        }
+      }
+      prompt = prompt + guidanceLines.join('\n');
+      console.log('[linear/webhook] Appended guidance rules:', payload.guidance.length);
     }
 
     let attachments = [] as Awaited<ReturnType<typeof buildManusAttachments>>;
