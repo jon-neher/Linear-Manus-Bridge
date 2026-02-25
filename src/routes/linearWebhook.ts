@@ -59,6 +59,7 @@ interface AgentActivityPayload {
   id?: string;
   body?: string;
   content?: { type?: string; body?: string };
+  signal?: 'stop' | 'auth' | 'select';
 }
 
 interface AgentSessionEventPayload {
@@ -367,7 +368,8 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
         payload.agentActivity?.body ??
         payload.promptContext;
       const normalizedMessage = userMessage?.trim().toLowerCase();
-      const isStopCommand = normalizedMessage === 'stop';
+      const hasStopSignal = payload.agentActivity?.signal === 'stop';
+      const isStopCommand = normalizedMessage === 'stop' || hasStopSignal;
       console.log('[linear/webhook] Handling prompted event', {
         agentSessionId,
         issueId,

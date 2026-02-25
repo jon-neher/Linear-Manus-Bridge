@@ -574,6 +574,41 @@ describe('Linear webhook endpoint', () => {
     expect(createAgentActivity).not.toHaveBeenCalled();
   });
 
+  it('AgentSessionEvent prompted: handles stop signal from Linear UI', async () => {
+    const { getValidToken } = await import('../../services/linearAuth');
+    const { replyToTask } = await import('../../services/manusClient');
+    const { findTaskBySession, findPendingTaskBySession } = await import('../../services/taskStore');
+    const { createAgentActivity } = await import('../../services/linearAgentSession');
+
+    (getValidToken as ReturnType<typeof vi.fn>).mockResolvedValue('mock-token');
+    (findTaskBySession as ReturnType<typeof vi.fn>).mockReturnValue('manus-123');
+    (findPendingTaskBySession as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    (replyToTask as ReturnType<typeof vi.fn>).mockResolvedValue({
+      taskId: 'manus-123', taskUrl: 'https://manus.ai/tasks/123',
+    });
+
+    // When Linear sends a stop request from the UI, it includes signal: "stop"
+    // The body may be empty or contain stop-related text
+    const payload = {
+      type: 'AgentSessionEvent',
+      action: 'prompted',
+      organizationId: 'org-1',
+      agentSession: { id: 'session-1' },
+      agentActivity: { id: 'activity-1', body: 'Stop', signal: 'stop' },
+    };
+    const { rawBody, signature } = signBody(payload);
+
+    const res = await request(app)
+      .post('/linear/webhook')
+      .set('Content-Type', 'application/json')
+      .set('linear-signature', signature)
+      .send(rawBody);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, stopped: true });
+    expect(replyToTask).toHaveBeenCalledWith('manus-123', 'stop');
+  });
+
   it('AgentSessionEvent prompted: ignores stop when no Manus task found', async () => {
     const { getValidToken } = await import('../../services/linearAuth');
     const { replyToTask } = await import('../../services/manusClient');
