@@ -164,6 +164,74 @@ describe('Manus webhook endpoint', () => {
     });
   });
 
+  describe('task_progress', () => {
+    it('emits thought activity with progress message', async () => {
+      vi.doMock('../../services/manusWebhookVerifier', () => ({
+        verifyManusWebhookSignature: vi.fn().mockResolvedValue(true),
+      }));
+      vi.doMock('../../services/taskStore', () => ({
+        getTask: vi.fn().mockReturnValue({
+          linearIssueId: 'issue-1',
+          workspaceId: 'org-1',
+          agentSessionId: 'session-1',
+          prompt: 'test',
+          attachments: [],
+        }),
+        storeTask: vi.fn(),
+        updateProgressCommentId: vi.fn(),
+        updateParentCommentId: vi.fn(),
+        updateQuestionCommentId: vi.fn(),
+        addPlanStep: vi.fn().mockReturnValue([]),
+      }));
+      vi.doMock('../../services/linearAuth', () => ({
+        getValidToken: vi.fn().mockResolvedValue('mock-token'),
+      }));
+      vi.doMock('../../services/linearAgentSession', () => ({
+        createAgentActivity: vi.fn().mockResolvedValue('activity-thought'),
+        updateAgentSession: vi.fn().mockResolvedValue(undefined),
+      }));
+      vi.doMock('../../services/linearClient', () => ({
+        postComment: vi.fn().mockResolvedValue('comment-1'),
+        updateComment: vi.fn().mockResolvedValue(undefined),
+        findStateIdByName: vi.fn(),
+        updateIssueState: vi.fn().mockResolvedValue(undefined),
+      }));
+
+      app = (await import('../../index')).default;
+
+      const payload = {
+        event_type: 'task_progress',
+        task_id: 'manus-123',
+        progress_detail: {
+          task_id: 'manus-123',
+          progress_type: 'plan_update',
+          message: 'Cloned the repository to explore the codebase',
+        },
+        metadata: {
+          linear_issue_id: 'issue-1',
+          workspace_id: 'org-1',
+        },
+      };
+
+      const res = await request(app)
+        .post('/webhook/manus')
+        .set('Content-Type', 'application/json')
+        .send(payload);
+
+      expect(res.status).toBe(200);
+
+      const { createAgentActivity } = await import('../../services/linearAgentSession');
+      expect(createAgentActivity).toHaveBeenCalledWith(
+        'session-1',
+        expect.objectContaining({
+          type: 'thought',
+          body: 'Cloned the repository to explore the codebase',
+        }),
+        'mock-token',
+      );
+    });
+  });
+
   describe('task_stopped', () => {
     it('includes PR link in response when finish with PR URL', async () => {
       vi.doMock('../../services/manusWebhookVerifier', () => ({

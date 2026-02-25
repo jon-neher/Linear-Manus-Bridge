@@ -419,6 +419,12 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
     const progressMessage = progressDetail?.message?.trim() || 'Working…';
     const progressType = progressDetail?.progress_type;
 
+    console.log('[webhook/manus] task_progress detail:', {
+      taskId: progressTaskId,
+      progressType: progressType ?? '(none)',
+      messagePreview: progressMessage.slice(0, 80) + (progressMessage.length > 80 ? '…' : ''),
+    });
+
     try {
       const accessToken = await getValidToken(workspaceId);
 
@@ -455,11 +461,11 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
       }
 
       // Emit agent activity for the session UI
+      // Use 'thought' type for progress - this shows Manus's reasoning in real-time
       if (stored?.agentSessionId) {
         await createAgentActivity(stored.agentSessionId, {
-          type: 'action',
-          action: 'Manus progress',
-          result: progressMessage,
+          type: 'thought',
+          body: progressMessage,
         }, accessToken).catch((err) =>
           console.error('[webhook/manus] task_progress activity failed:', err),
         );
