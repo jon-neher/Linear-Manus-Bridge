@@ -56,6 +56,18 @@ interface AgentSessionWebhookPayload {
   status?: string;
 }
 
+interface PreviousComment {
+  id?: string;
+  body?: string;
+  author?: string;
+  createdAt?: string;
+}
+
+interface CommentThread {
+  commentId?: string;
+  comments?: PreviousComment[];
+}
+
 interface AgentActivityPayload {
   id?: string;
   body?: string;
@@ -77,6 +89,7 @@ interface AgentSessionEventPayload {
   agentActivity?: AgentActivityPayload | null;
   promptContext?: string | null;
   guidance?: GuidanceRule[] | null;
+  previousComments?: CommentThread[] | null;
   webhookId?: string;
   webhookTimestamp?: number;
 }
@@ -634,6 +647,18 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
     let teamId: string | undefined =
       payload.agentSession.issue?.teamId ?? payload.agentSession.issue?.team?.id;
     let issueDetails;
+
+    // Log previous comments context if provided
+    if (payload.previousComments && payload.previousComments.length > 0) {
+      const totalComments = payload.previousComments.reduce(
+        (sum, thread) => sum + (thread.comments?.length ?? 0),
+        0,
+      );
+      console.log('[linear/webhook] Previous comments received:', {
+        threads: payload.previousComments.length,
+        totalComments,
+      });
+    }
 
     if (payload.promptContext) {
       prompt = payload.promptContext;
