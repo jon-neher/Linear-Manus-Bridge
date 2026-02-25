@@ -28,22 +28,24 @@ app.use((req, _res, next) => {
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-// Debug endpoint — shows current task store state (no secrets exposed)
-app.get('/debug/tasks', (_req, res) => {
-  const tasks = getAllTasks().map(([id, r]) => ({
-    taskId: id,
-    linearIssueId: r.linearIssueId,
-    hasAgentSession: !!r.agentSessionId,
-    hasProgressComment: !!r.progressCommentId,
-    hasQuestionComment: !!r.questionCommentId,
-  }));
-  const pending = getAllPendingTasks().map(([id, r]) => ({
-    key: id,
-    linearIssueId: r.linearIssueId,
-    hasAgentSession: !!r.agentSessionId,
-  }));
-  res.json({ tasks, pending });
-});
+const enableDebugEndpoints = process.env.ENABLE_DEBUG_ENDPOINTS === 'true';
+if (enableDebugEndpoints) {
+  app.get('/debug/tasks', (_req, res) => {
+    const tasks = getAllTasks().map(([id, r]) => ({
+      taskId: id,
+      linearIssueId: r.linearIssueId,
+      hasAgentSession: !!r.agentSessionId,
+      hasProgressComment: !!r.progressCommentId,
+      hasQuestionComment: !!r.questionCommentId,
+    }));
+    const pending = getAllPendingTasks().map(([id, r]) => ({
+      key: id,
+      linearIssueId: r.linearIssueId,
+      hasAgentSession: !!r.agentSessionId,
+    }));
+    res.json({ tasks, pending });
+  });
+}
 
 app.use('/oauth', oauthRouter);
 app.use('/webhook', webhookRouter);

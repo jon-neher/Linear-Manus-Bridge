@@ -28,6 +28,7 @@ import {
 } from '../services/linearAgentSession';
 
 const router = Router();
+const verboseWebhookLogs = process.env.LOG_VERBOSE_WEBHOOKS === 'true';
 
 interface RawBodyRequest extends Request {
   rawBody?: Buffer;
@@ -302,15 +303,18 @@ async function finalizePendingTask(
  *    a standard assignee change. Kept for backwards compatibility.
  */
 router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
-  console.log('[linear/webhook] Received request', {
+  const requestLog: Record<string, unknown> = {
     method: req.method,
     headers: {
       'content-type': req.headers['content-type'],
       'linear-signature': req.headers['linear-signature'],
       'x-linear-signature': req.headers['x-linear-signature'],
     },
-    bodyPreview: JSON.stringify(req.body)?.slice(0, 300),
-  });
+  };
+  if (verboseWebhookLogs) {
+    requestLog.bodyPreview = JSON.stringify(req.body)?.slice(0, 300);
+  }
+  console.log('[linear/webhook] Received request', requestLog);
   const signatureHeader =
     (req.headers['linear-signature'] as string | undefined) ??
     (req.headers['x-linear-signature'] as string | undefined);
@@ -356,12 +360,13 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
         agentSessionId,
         issueId,
         workspaceId,
-        userMessage: userMessage ?? '(empty)',
+        userMessageLength: userMessage?.length ?? 0,
         agentActivityId: payload.agentActivity?.id ?? '(none)',
         hasAgentActivity: !!payload.agentActivity,
         hasContentBody: !!payload.agentActivity?.content?.body,
         hasBody: !!payload.agentActivity?.body,
         hasPromptContext: !!payload.promptContext,
+        isStopCommand,
       });
       if (!userMessage || !agentSessionId || !workspaceId) {
         console.warn('[linear/webhook] prompted: missing required data', {
@@ -392,7 +397,7 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
       if (pendingSelection) {
         const selectedProfile = parseProfileChoice(userMessage);
         console.log('[linear/webhook] prompted: profile selection', {
-          userMessage,
+          userMessageLength: userMessage?.length ?? 0,
           parsedProfile: selectedProfile ?? '(no match)',
         });
         if (!selectedProfile) {
