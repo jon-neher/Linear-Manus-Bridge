@@ -20,12 +20,13 @@ Tests live in `src/__tests__/` (excluded from tsc build). CI runs type-check + t
 
 - `src/index.ts` — Express app setup with raw body capture for signature verification
 - `src/routes/` — Route handlers for Linear webhooks, Manus webhooks, and OAuth
-- `src/services/` — Business logic: Linear GraphQL client, Manus API client, token management, webhook verification, encrypted installation store, in-memory task store
+- `src/services/` — Business logic: Linear GraphQL client, Manus API client, token management, webhook verification, encrypted installation store, in-memory task store, shared constants
 
 ## Key Things to Know
 
 - **TypeScript strict mode**, CommonJS output, ES2022 target
 - **No shared types file** — interfaces are defined locally in each file
+- **Centralized constants** — `src/services/constants.ts` holds shared values (API URLs, profile options, timeouts)
 - **Native `fetch`** — no axios or node-fetch; requires Node ≥ 18
 - **Two webhook paths** in `linearWebhook.ts`: AgentSessionEvent (primary) and legacy Issue assignment (backwards compat)
 - **Encrypted token storage** — `installationStore.ts` uses AES-256-GCM; never log or expose tokens

@@ -12,7 +12,7 @@
 ## Architecture
 - Express 4 / TypeScript (strict, ES2022, CommonJS) / Node ≥ 20 / native `fetch`
 - `src/routes/` — webhook handlers: `linearWebhook.ts` (AgentSession + legacy), `webhook.ts` (Manus callbacks), `oauth.ts`, `manusWebhooks.ts`
-- `src/services/` — `linearClient.ts` (GraphQL), `linearAgentSession.ts` (agent activities), `linearAuth.ts` (OAuth + token refresh), `manusClient.ts` (task API), `manus.ts`, `manusAttachments.ts`, `manusWebhookVerifier.ts` (RSA-SHA256), `installationStore.ts` (AES-256-GCM encrypted token store), `taskStore.ts` (in-memory Map), `oauthStateStore.ts`
+- `src/services/` — `linearClient.ts` (GraphQL), `linearAgentSession.ts` (agent activities), `linearAuth.ts` (OAuth + token refresh), `manusClient.ts` (task API), `manusAttachments.ts`, `manusWebhookVerifier.ts` (RSA-SHA256), `installationStore.ts` (AES-256-GCM encrypted token store), `taskStore.ts` (in-memory Map), `oauthStateStore.ts`, `constants.ts` (shared configuration values)
 - `src/__tests__/` — mirrors `routes/` and `services/`; uses vitest globals + supertest
 - Webhook security: Linear uses HMAC-SHA256; Manus uses RSA-SHA256 with cached public key
 - Agent session lifecycle: emit `thought` within 10s of `created` → forward Manus progress as `action` → emit `response` on completion or `ask`; `prompted` events forward user replies via multi-turn
