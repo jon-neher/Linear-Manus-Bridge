@@ -162,9 +162,9 @@ describe('Linear webhook endpoint', () => {
         signal: 'select',
         signalMetadata: {
           options: [
-            { label: 'manus-1.6', value: 'manus-1.6' },
-            { label: 'manus-1.6-lite', value: 'manus-1.6-lite' },
-            { label: 'manus-1.6-max', value: 'manus-1.6-max' },
+            { label: 'Manus 1.6', value: 'manus-1.6' },
+            { label: 'Manus 1.6 Lite', value: 'manus-1.6-lite' },
+            { label: 'Manus 1.6 Max', value: 'manus-1.6-max' },
           ],
         },
       }),

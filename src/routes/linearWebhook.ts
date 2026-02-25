@@ -213,7 +213,12 @@ function buildProfileSelectionElicitation() {
     },
     signal: 'select' as const,
     signalMetadata: {
-      options: PROFILE_OPTIONS.map((option) => ({ label: option, value: option })),
+      options: PROFILE_OPTIONS.map((option) => ({
+        label: option === 'manus-1.6' ? 'Manus 1.6' :
+               option === 'manus-1.6-lite' ? 'Manus 1.6 Lite' :
+               option === 'manus-1.6-max' ? 'Manus 1.6 Max' : option,
+        value: option,
+      })),
     },
   };
 }
