@@ -1,4 +1,4 @@
-const LINEAR_GRAPHQL_URL = 'https://api.linear.app/graphql';
+import { LINEAR_GRAPHQL_URL } from './constants';
 
 interface GraphQLResponse<T> {
   data?: T;

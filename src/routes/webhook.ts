@@ -351,13 +351,17 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
         if (createdDetail?.task_url) {
           await updateAgentSession(stored.agentSessionId, {
             externalUrls: [{ label: 'View in Manus', url: createdDetail.task_url }],
-          }, accessToken).catch(() => {});
+          }, accessToken).catch((err) =>
+            console.error('[webhook/manus] Failed to update session external URL:', err),
+          );
         }
         if (createdDetail?.task_title) {
           await createAgentActivity(stored.agentSessionId, {
             type: 'thought',
             body: `Manus is working on: ${createdDetail.task_title}`,
-          }, accessToken).catch(() => {});
+          }, accessToken).catch((err) =>
+            console.error('[webhook/manus] Failed to emit task_title activity:', err),
+          );
         }
       } catch (err) {
         console.error('[webhook/manus] task_created activity failed:', err);

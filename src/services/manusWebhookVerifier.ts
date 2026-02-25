@@ -1,18 +1,11 @@
 import { createHash, createVerify } from 'crypto';
+import {
+  MANUS_API_BASE_URL,
+  MAX_WEBHOOK_TIMESTAMP_AGE_SECONDS,
+  PUBLIC_KEY_CACHE_TTL_MS,
+} from './constants';
 
-const MANUS_PUBLIC_KEY_URL =
-  (process.env.MANUS_API_BASE_URL ?? 'https://api.manus.ai') + '/v1/webhook/public_key';
-
-/**
- * Maximum age (in seconds) for a webhook timestamp before it is rejected.
- * This prevents replay attacks.
- */
-const MAX_TIMESTAMP_AGE_SECONDS = 300; // 5 minutes
-
-/**
- * How long (in milliseconds) to cache the Manus public key before re-fetching.
- */
-const PUBLIC_KEY_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const MANUS_PUBLIC_KEY_URL = `${MANUS_API_BASE_URL}/v1/webhook/public_key`;
 
 interface PublicKeyCache {
   pem: string;
@@ -82,9 +75,9 @@ export async function verifyManusWebhookSignature(
     return false;
   }
   const ageSeconds = Math.abs(Math.floor(Date.now() / 1000) - requestTime);
-  if (ageSeconds > MAX_TIMESTAMP_AGE_SECONDS) {
+  if (ageSeconds > MAX_WEBHOOK_TIMESTAMP_AGE_SECONDS) {
     console.warn(
-      `[ManusVerifier] Webhook timestamp is ${ageSeconds}s old (max ${MAX_TIMESTAMP_AGE_SECONDS}s)`,
+      `[ManusVerifier] Webhook timestamp is ${ageSeconds}s old (max ${MAX_WEBHOOK_TIMESTAMP_AGE_SECONDS}s)`,
     );
     return false;
   }

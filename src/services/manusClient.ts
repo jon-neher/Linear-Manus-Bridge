@@ -1,3 +1,5 @@
+import { MANUS_API_BASE_URL } from './constants';
+
 interface ManusTaskResponse {
   task_id: string;
   task_title?: string;
@@ -14,8 +16,6 @@ interface ManusFileResponse {
   upload_expires_at?: string;
   created_at?: string;
 }
-
-const MANUS_API_BASE_URL = process.env.MANUS_API_BASE_URL ?? 'https://api.manus.ai';
 
 export interface ManusTaskOptions {
   agentProfile?: string;

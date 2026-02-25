@@ -1,7 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
-
-const DEFAULT_MANUS_API_BASE_URL = 'https://api.manus.ai';
+import { MANUS_API_BASE_URL } from './constants';
 
 interface CreateWebhookResponse {
   webhook_id: string;
@@ -37,8 +36,7 @@ export async function createManusWebhook(url: string): Promise<{ webhookId: stri
     throw new Error('MANUS_API_KEY is not configured');
   }
 
-  const baseUrl = process.env.MANUS_API_BASE_URL || DEFAULT_MANUS_API_BASE_URL;
-  const response = await fetch(`${baseUrl}/v1/webhooks`, {
+  const response = await fetch(`${MANUS_API_BASE_URL}/v1/webhooks`, {
     method: 'POST',
     headers: {
       API_KEY: apiKey,
@@ -69,8 +67,7 @@ export async function deleteManusWebhook(webhookId: string): Promise<void> {
   const apiKey = process.env.MANUS_API_KEY;
   if (!apiKey) return;
 
-  const baseUrl = process.env.MANUS_API_BASE_URL || DEFAULT_MANUS_API_BASE_URL;
-  const response = await fetch(`${baseUrl}/v1/webhooks/${webhookId}`, {
+  const response = await fetch(`${MANUS_API_BASE_URL}/v1/webhooks/${webhookId}`, {
     method: 'DELETE',
     headers: { API_KEY: apiKey },
   });
