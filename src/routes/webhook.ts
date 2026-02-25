@@ -6,6 +6,9 @@ import {
   updateProgressCommentId,
   updateParentCommentId,
   updateQuestionCommentId,
+  addPlanStep,
+  completeAllPlanSteps,
+  clearPlan,
 } from '../services/taskStore';
 import { getValidToken } from '../services/linearAuth';
 import {
@@ -400,9 +403,24 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
     }
 
     const progressMessage = progressDetail?.message?.trim() || 'Working…';
+    const progressType = progressDetail?.progress_type;
 
     try {
       const accessToken = await getValidToken(workspaceId);
+
+      // Handle plan updates - update Linear agent session plan
+      if (progressType === 'plan_update' && stored?.agentSessionId) {
+        const plan = addPlanStep(progressTaskId, progressMessage);
+        console.log('[webhook/manus] Plan updated:', {
+          taskId: progressTaskId,
+          steps: plan.length,
+          latest: progressMessage.slice(0, 50) + (progressMessage.length > 50 ? '…' : ''),
+        });
+
+        await updateAgentSession(stored.agentSessionId, { plan }, accessToken).catch((err) =>
+          console.error('[webhook/manus] Failed to update agent session plan:', err),
+        );
+      }
 
       // Post progress as a threaded reply under the parent comment
       const commentBody = formatProgressComment(
@@ -576,7 +594,20 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
   }
 
   if (stopReason !== 'ask') {
+    // Mark all plan steps as completed
+    if (sessionId) {
+      const completedPlan = completeAllPlanSteps(taskId);
+      if (completedPlan && completedPlan.length > 0) {
+        await updateAgentSession(sessionId, { plan: completedPlan }, accessToken).catch((err) =>
+          console.error('[webhook/manus] Failed to update completed plan:', err),
+        );
+      }
+    }
     consumeTask(taskId);
+    clearPlan(taskId);
+  } else {
+    // Task is asking for input - keep the plan as-is for context
+    console.log('[webhook/manus] Task needs input, keeping plan for context');
   }
 
   res.json({ ok: true });
