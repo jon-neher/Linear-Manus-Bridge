@@ -12,6 +12,15 @@ export interface TaskRecord {
   parentCommentId?: string;
 }
 
+export interface PlanStep {
+  content: string;
+  status: 'pending' | 'inProgress' | 'completed' | 'canceled';
+  addedAt: number;
+}
+
+// Plan store: taskId -> array of plan steps
+const planStore = new Map<string, PlanStep[]>();
+
 export interface PendingTaskRecord {
   linearIssueId: string;
   linearTeamId?: string;
@@ -31,6 +40,7 @@ function getDataDir(): string {
 
 const PENDING_STORE_PATH = join(getDataDir(), '.pending-tasks.json');
 const TASK_STORE_PATH = join(getDataDir(), '.tasks.json');
+const PLAN_STORE_PATH = join(getDataDir(), '.plans.json');
 
 // In-memory task store mapping Manus task IDs to Linear issue context.
 const taskStore = new Map<string, TaskRecord>();
@@ -196,4 +206,114 @@ export function consumePendingTask(commentId: string): PendingTaskRecord | undef
     persistMap(pendingTaskStore, PENDING_STORE_PATH);
   }
   return record;
+}
+
+// ─── Plan management ────────────────────────────────────────────────────────
+
+function persistPlans(): void {
+  try {
+    writeFileSync(PLAN_STORE_PATH, JSON.stringify(Array.from(planStore.entries())), 'utf8');
+  } catch (err) {
+    console.error('[taskStore] Failed to persist plans:', err);
+  }
+}
+
+function loadPlans(): void {
+  if (!existsSync(PLAN_STORE_PATH)) return;
+  try {
+    const raw = readFileSync(PLAN_STORE_PATH, 'utf8');
+    const entries: [string, PlanStep[]][] = JSON.parse(raw);
+    for (const [k, v] of entries) planStore.set(k, v);
+    if (entries.length > 0) {
+      console.log(`[taskStore] Restored ${entries.length} plan(s) from disk`);
+    }
+  } catch {
+    console.error('[taskStore] Failed to load plans; starting fresh');
+  }
+}
+
+// Load plans on startup
+loadPlans();
+
+/**
+ * Get the current plan for a task.
+ */
+export function getPlan(taskId: string): PlanStep[] | undefined {
+  return planStore.get(taskId);
+}
+
+/**
+ * Add or update a plan step from a Manus progress event.
+ * - If the step content is new, mark all previous steps as completed and add new as inProgress
+ * - If the step already exists, keep its status
+ * Returns the updated plan array.
+ */
+export function addPlanStep(taskId: string, stepContent: string): PlanStep[] {
+  const existing = planStore.get(taskId) ?? [];
+  const normalizedContent = stepContent.trim();
+
+  // Check if this step already exists
+  const existingIndex = existing.findIndex(
+    (s) => s.content.trim().toLowerCase() === normalizedContent.toLowerCase(),
+  );
+
+  if (existingIndex >= 0) {
+    // Step already exists, don't duplicate
+    return existing;
+  }
+
+  // Mark all previous steps as completed
+  const updated = existing.map((s) => ({
+    ...s,
+    status: s.status === 'inProgress' ? 'completed' : s.status,
+  })) as PlanStep[];
+
+  // Add new step as inProgress
+  updated.push({
+    content: normalizedContent,
+    status: 'inProgress',
+    addedAt: Date.now(),
+  });
+
+  planStore.set(taskId, updated);
+  persistPlans();
+  return updated;
+}
+
+/**
+ * Mark all steps in a plan as completed.
+ * Used when task finishes.
+ */
+export function completeAllPlanSteps(taskId: string): PlanStep[] | undefined {
+  const existing = planStore.get(taskId);
+  if (!existing) return undefined;
+
+  const updated = existing.map((s) => ({
+    ...s,
+    status: 'completed' as const,
+  }));
+
+  planStore.set(taskId, updated);
+  persistPlans();
+  return updated;
+}
+
+/**
+ * Clear the plan for a task (e.g., when task is consumed).
+ */
+export function clearPlan(taskId: string): void {
+  planStore.delete(taskId);
+  persistPlans();
+}
+
+/**
+ * Clear plans for tasks that no longer exist in taskStore.
+ */
+export function cleanupOrphanedPlans(): void {
+  for (const taskId of planStore.keys()) {
+    if (!taskStore.has(taskId)) {
+      planStore.delete(taskId);
+    }
+  }
+  persistPlans();
 }
