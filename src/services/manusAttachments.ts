@@ -10,6 +10,22 @@ interface Base64Block {
 
 const BASE64_BLOCK_REGEX = /```manus-base64(?:\s+([^\n]*))?\n([\s\S]*?)```/g;
 
+const DEFAULT_MAX_URLS = 20;
+const DEFAULT_MAX_BASE64_BYTES = 5 * 1024 * 1024;
+
+function parseLimit(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.floor(parsed);
+}
+
+const MAX_URLS = parseLimit(process.env.MANUS_ATTACH_MAX_URLS, DEFAULT_MAX_URLS);
+const MAX_BASE64_BYTES = parseLimit(
+  process.env.MANUS_ATTACH_MAX_BASE64_BYTES,
+  DEFAULT_MAX_BASE64_BYTES,
+);
+
 function parseBase64Blocks(description: string | null | undefined): Base64Block[] {
   if (!description) return [];
 
@@ -36,6 +52,15 @@ function parseBase64Blocks(description: string | null | undefined): Base64Block[
     const filename = meta.filename ?? `attachment-${index}`;
     const mimeType = meta.mime ?? meta.mimetype;
     const data = body.replace(/\s+/g, '');
+    const approxBytes = Math.floor((data.length * 3) / 4);
+    if (approxBytes > MAX_BASE64_BYTES) {
+      console.warn('[manusAttachments] Skipping base64 block over limit', {
+        filename,
+        sizeBytes: approxBytes,
+        maxBytes: MAX_BASE64_BYTES,
+      });
+      continue;
+    }
     blocks.push({ data, filename, mimeType });
     index += 1;
   }
@@ -52,6 +77,10 @@ function collectUrls(texts: string[]): string[] {
     const matches = text.match(urlRegex);
     if (!matches) continue;
     for (const match of matches) {
+      if (urls.size >= MAX_URLS) {
+        console.warn('[manusAttachments] URL limit reached', { maxUrls: MAX_URLS });
+        return Array.from(urls);
+      }
       urls.add(match);
     }
   }

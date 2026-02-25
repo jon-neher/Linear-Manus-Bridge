@@ -4,6 +4,7 @@ import {
   getTask,
   storeTask,
   updateProgressCommentId,
+  updateParentCommentId,
   updateQuestionCommentId,
 } from '../services/taskStore';
 import { getValidToken } from '../services/linearAuth';
@@ -17,6 +18,7 @@ import { verifyManusWebhookSignature } from '../services/manusWebhookVerifier';
 import { createAgentActivity, updateAgentSession } from '../services/linearAgentSession';
 
 const router = Router();
+const verboseWebhookLogs = process.env.LOG_VERBOSE_WEBHOOKS === 'true';
 
 // Extend Express Request to expose the raw body captured by the json middleware verify callback.
 interface RawBodyRequest extends Request {
@@ -97,6 +99,7 @@ function buildWebhookUrl(req: Request): string {
   if (baseUrl) {
     return `${baseUrl}${req.originalUrl}`;
   }
+  console.warn('[webhook/manus] SERVICE_BASE_URL not set; using request headers for signature URL');
   const proto = (req.headers['x-forwarded-proto'] as string) ?? req.protocol ?? 'https';
   const host = (req.headers['x-forwarded-host'] as string) ?? req.headers.host ?? 'localhost';
   return `${proto}://${host}${req.originalUrl}`;
@@ -220,10 +223,13 @@ function formatLegacyResult(
  * Receives Manus progress updates and updates a single Linear comment.
  */
 router.post('/manus/progress', async (req: RawBodyRequest, res: Response): Promise<void> => {
-  console.log('[webhook/manus/progress] ── Incoming request ──', {
+  const progressLog: Record<string, unknown> = {
     event_type: (req.body as { event_type?: string }).event_type ?? '(none)',
-    bodyPreview: JSON.stringify(req.body)?.slice(0, 500),
-  });
+  };
+  if (verboseWebhookLogs) {
+    progressLog.bodyPreview = JSON.stringify(req.body)?.slice(0, 500);
+  }
+  console.log('[webhook/manus/progress] ── Incoming request ──', progressLog);
 
   if (!(await checkManusSignature(req, res))) return;
 
@@ -275,16 +281,16 @@ router.post('/manus/progress', async (req: RawBodyRequest, res: Response): Promi
   );
 
   try {
-    if (stored?.progressCommentId) {
-      await updateComment(stored.progressCommentId, commentBody, accessToken);
-    } else {
-      const commentId = await postComment(issueId, commentBody, accessToken);
-      if (commentId) {
-        updateProgressCommentId(taskId, commentId);
+    const parentId = stored?.parentCommentId;
+    const commentId = await postComment(issueId, commentBody, accessToken, parentId);
+    if (commentId) {
+      updateProgressCommentId(taskId, commentId);
+      if (!parentId) {
+        updateParentCommentId(taskId, commentId);
       }
     }
   } catch (err) {
-    console.error('Failed to update progress comment:', err);
+    console.error('Failed to post progress comment:', err);
     res.status(502).json({ error: `Comment failed: ${(err as Error).message}` });
     return;
   }
@@ -316,11 +322,14 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
     (req.body as { task_id?: string }).task_id ??
     (req.body as { task_detail?: { task_id?: string } }).task_detail?.task_id ??
     (req.body as { progress_detail?: { task_id?: string } }).progress_detail?.task_id;
-  console.log('[webhook/manus] ── Incoming request ──', {
+  const requestLog: Record<string, unknown> = {
     event_type: incomingEventType ?? '(none)',
     task_id: incomingTaskId ?? '(none)',
-    bodyPreview: JSON.stringify(req.body)?.slice(0, 500),
-  });
+  };
+  if (verboseWebhookLogs) {
+    requestLog.bodyPreview = JSON.stringify(req.body)?.slice(0, 500);
+  }
+  console.log('[webhook/manus] ── Incoming request ──', requestLog);
 
   if (!(await checkManusSignature(req, res))) return;
 
@@ -395,14 +404,23 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
     try {
       const accessToken = await getValidToken(workspaceId);
 
-      // Post each plan step as a comment in Linear
+      // Post progress as a threaded reply under the parent comment
       const commentBody = formatProgressComment(
         progressDetail ?? { task_id: progressTaskId, message: progressMessage },
         progressTaskId,
       );
-      await postComment(issueId, commentBody, accessToken).catch((err) =>
-        console.error('[webhook/manus] task_progress comment failed:', err),
-      );
+      const parentId = stored?.parentCommentId;
+      const commentId = await postComment(issueId, commentBody, accessToken, parentId).catch((err) => {
+        console.error('[webhook/manus] task_progress comment failed:', err);
+        return null;
+      });
+      if (commentId) {
+        updateProgressCommentId(progressTaskId, commentId);
+        if (!parentId) {
+          updateParentCommentId(progressTaskId, commentId);
+          stored = getTask(progressTaskId);
+        }
+      }
 
       // Emit agent activity for the session UI
       if (stored?.agentSessionId) {
@@ -502,7 +520,8 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
   }
 
   try {
-    const commentId = await postComment(issueId, commentBody, accessToken);
+    const parentId = stored?.parentCommentId;
+    const commentId = await postComment(issueId, commentBody, accessToken, parentId);
     if (stopReason === 'ask' && commentId) {
       updateQuestionCommentId(taskId, commentId);
     }
