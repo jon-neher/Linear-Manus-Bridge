@@ -81,7 +81,58 @@ function collectUrls(texts: string[]): string[] {
         console.warn('[manusAttachments] URL limit reached', { maxUrls: MAX_URLS });
         return Array.from(urls);
       }
-      urls.add(match);
+
+      // Validate the URL before adding
+      try {
+        const parsed = new URL(match);
+        // Only allow http and https protocols
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          continue;
+        }
+
+        // Hostname validation:
+        // - Must have at least two labels (e.g., "example.com" not just "com")
+        // - Must not start or end with a dot
+        // - Must not start with a hyphen
+        // - Each label must have at least one alphanumeric character
+        const hostname = parsed.hostname;
+        if (!hostname) {
+          console.warn('[manusAttachments] Skipping URL with missing hostname', {
+            url: match.slice(0, 50),
+          });
+          continue;
+        }
+
+        const labels = hostname.split('.');
+        if (labels.length < 2) {
+          console.warn('[manusAttachments] Skipping URL with incomplete hostname (needs domain and TLD)', {
+            url: match.slice(0, 50),
+            hostname,
+          });
+          continue;
+        }
+
+        // Check each label is valid (at least one alphanumeric char, doesn't start with hyphen)
+        const hasInvalidLabel = labels.some((label) => {
+          if (!label || label.startsWith('-')) return true;
+          // Must have at least one letter or digit
+          return !/[a-zA-Z0-9]/.test(label);
+        });
+
+        if (hasInvalidLabel) {
+          console.warn('[manusAttachments] Skipping URL with invalid hostname labels', {
+            url: match.slice(0, 50),
+            hostname,
+          });
+          continue;
+        }
+
+        urls.add(match);
+      } catch {
+        console.warn('[manusAttachments] Skipping invalid URL', {
+          url: match.slice(0, 50),
+        });
+      }
     }
   }
 
