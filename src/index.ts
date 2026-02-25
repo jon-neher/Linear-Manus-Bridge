@@ -1,5 +1,6 @@
 import express, { Request } from 'express';
 import oauthRouter from './routes/oauth';
+import statsRouter from './routes/stats';
 import webhookRouter from './routes/webhook';
 import linearWebhookRouter from './routes/linearWebhook';
 import manusWebhooksRouter from './routes/manusWebhooks';
@@ -47,6 +48,7 @@ if (enableDebugEndpoints) {
   });
 }
 
+app.use('/stats', statsRouter);
 app.use('/oauth', oauthRouter);
 app.use('/webhook', webhookRouter);
 app.use('/linear/webhook', linearWebhookRouter);
