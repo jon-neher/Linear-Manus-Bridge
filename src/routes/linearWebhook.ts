@@ -4,6 +4,7 @@ import { getValidToken } from '../services/linearAuth';
 import {
   findStateIdByName,
   getIssueDetails,
+  getRepositorySuggestions,
   postComment,
   updateIssueState,
 } from '../services/linearClient';
@@ -231,6 +232,36 @@ function shouldDisableGithubConnector(
   return comments.some((comment) => CONNECTORS_NONE_REGEX.test(comment.body));
 }
 
+/**
+ * Parse candidate repositories from CANDIDATE_REPOSITORIES env var.
+ * Format: "github.com/owner/repo1,github.com/owner/repo2"
+ */
+function parseCandidateRepositories(): Array<{ hostname: string; repositoryFullName: string }> {
+  const raw = process.env.CANDIDATE_REPOSITORIES;
+  if (!raw) return [];
+
+  return raw.split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .map((repo) => {
+      // Handle both "github.com/owner/repo" and "owner/repo" formats
+      if (repo.includes('/')) {
+        const parts = repo.split('/');
+        if (parts.length >= 3) {
+          // "github.com/owner/repo" format
+          const hostname = parts[0];
+          const fullName = parts.slice(1).join('/');
+          return { hostname, repositoryFullName: fullName };
+        } else if (parts.length === 2) {
+          // "owner/repo" format, assume github.com
+          return { hostname: 'github.com', repositoryFullName: repo };
+        }
+      }
+      return null;
+    })
+    .filter((r): r is { hostname: string; repositoryFullName: string } => r !== null);
+}
+
 async function finalizePendingTask(
   pending: PendingTaskRecord,
   selectedProfile: string,
@@ -262,11 +293,30 @@ async function finalizePendingTask(
     }
   }
 
+  // Fetch repository suggestions if candidates are configured
+  let repositorySuggestions: Array<{ hostname: string; repositoryFullName: string; confidence: number }> | undefined;
+  const candidates = parseCandidateRepositories();
+  if (candidates.length > 0 && pending.agentSessionId) {
+    try {
+      const suggestions = await getRepositorySuggestions(
+        pending.linearIssueId,
+        pending.agentSessionId,
+        candidates,
+        accessToken,
+      );
+      repositorySuggestions = suggestions;
+      console.log('[linear/webhook] Repository suggestions:', suggestions.map(s => `${s.repositoryFullName} (${s.confidence})`));
+    } catch (err) {
+      console.error('[linear/webhook] Failed to get repository suggestions:', err);
+    }
+  }
+
   const result = await createTaskWithFallback(pending.prompt, {
     agentProfile: selectedProfile,
     attachments: pending.attachments,
     interactiveMode: true,
     connectors: pending.connectors,
+    repositorySuggestions,
   });
 
   storeTask(result.taskId, {

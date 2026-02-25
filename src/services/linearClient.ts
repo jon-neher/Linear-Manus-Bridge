@@ -159,3 +159,47 @@ export async function updateIssueState(
     accessToken,
   );
 }
+
+export interface RepositorySuggestion {
+  repositoryFullName: string;
+  hostname: string;
+  confidence: number;
+}
+
+interface RepositorySuggestionsData {
+  issueRepositorySuggestions: {
+    suggestions: RepositorySuggestion[];
+  };
+}
+
+/**
+ * Query Linear for repository suggestions relevant to an issue.
+ * Linear uses context from the issue, session, agent guidance, and internal signals
+ * to rank the candidate repositories by relevance.
+ */
+export async function getRepositorySuggestions(
+  issueId: string,
+  agentSessionId: string,
+  candidateRepositories: Array<{ hostname: string; repositoryFullName: string }>,
+  accessToken: string,
+): Promise<RepositorySuggestion[]> {
+  const data = await linearGql<RepositorySuggestionsData>(
+    `query($issueId: String!, $agentSessionId: String!, $candidateRepositories: [IssueRepositoryCandidateInput!]!) {
+      issueRepositorySuggestions(
+        issueId: $issueId
+        agentSessionId: $agentSessionId
+        candidateRepositories: $candidateRepositories
+      ) {
+        suggestions {
+          repositoryFullName
+          hostname
+          confidence
+        }
+      }
+    }`,
+    { issueId, agentSessionId, candidateRepositories },
+    accessToken,
+  );
+
+  return data.issueRepositorySuggestions.suggestions;
+}

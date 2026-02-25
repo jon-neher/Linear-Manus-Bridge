@@ -5,6 +5,7 @@ import {
   getIssueDetails,
   findStateIdByName,
   updateIssueState,
+  getRepositorySuggestions,
 } from '../../services/linearClient';
 
 const TOKEN = 'test-access-token';
@@ -215,6 +216,69 @@ describe('linearClient', () => {
       await expect(postComment('issue-1', 'hello', TOKEN)).rejects.toThrow(
         'Linear GraphQL errors: Field not found, Unauthorized',
       );
+    });
+  });
+
+  describe('getRepositorySuggestions', () => {
+    it('returns ranked repository suggestions', async () => {
+      globalThis.fetch = mockFetchJson({
+        issueRepositorySuggestions: {
+          suggestions: [
+            { repositoryFullName: 'owner/repo1', hostname: 'github.com', confidence: 0.95 },
+            { repositoryFullName: 'owner/repo2', hostname: 'github.com', confidence: 0.72 },
+          ],
+        },
+      });
+
+      const candidates = [
+        { hostname: 'github.com', repositoryFullName: 'owner/repo1' },
+        { hostname: 'github.com', repositoryFullName: 'owner/repo2' },
+        { hostname: 'github.com', repositoryFullName: 'owner/repo3' },
+      ];
+
+      const result = await getRepositorySuggestions('issue-1', 'session-1', candidates, TOKEN);
+
+      expect(result).toHaveLength(2);
+      expect(result[0]).toEqual({
+        repositoryFullName: 'owner/repo1',
+        hostname: 'github.com',
+        confidence: 0.95,
+      });
+
+      expectGqlCall(globalThis.fetch, {
+        issueId: 'issue-1',
+        agentSessionId: 'session-1',
+        candidateRepositories: candidates,
+      });
+    });
+
+    it('returns empty array when no suggestions', async () => {
+      globalThis.fetch = mockFetchJson({
+        issueRepositorySuggestions: {
+          suggestions: [],
+        },
+      });
+
+      const result = await getRepositorySuggestions('issue-1', 'session-1', [], TOKEN);
+      expect(result).toEqual([]);
+    });
+
+    it('sends candidate repositories in correct format', async () => {
+      globalThis.fetch = mockFetchJson({
+        issueRepositorySuggestions: { suggestions: [] },
+      });
+
+      await getRepositorySuggestions(
+        'issue-1',
+        'session-1',
+        [{ hostname: 'github.com', repositoryFullName: 'owner/repo' }],
+        TOKEN,
+      );
+
+      const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
+      expect(body.variables.candidateRepositories).toEqual([
+        { hostname: 'github.com', repositoryFullName: 'owner/repo' },
+      ]);
     });
   });
 });
