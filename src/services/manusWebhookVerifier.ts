@@ -4,6 +4,9 @@ import {
   MAX_WEBHOOK_TIMESTAMP_AGE_SECONDS,
   PUBLIC_KEY_CACHE_TTL_MS,
 } from './constants';
+import { createLogger } from './logger';
+
+const log = createLogger('ManusVerifier');
 
 const MANUS_PUBLIC_KEY_URL = `${MANUS_API_BASE_URL}/v1/webhook/public_key`;
 
@@ -71,13 +74,14 @@ export async function verifyManusWebhookSignature(
   // 1. Validate timestamp freshness to prevent replay attacks.
   const requestTime = parseInt(timestamp, 10);
   if (isNaN(requestTime)) {
-    console.warn('[ManusVerifier] Invalid X-Webhook-Timestamp header value:', timestamp);
+    log.warn({ timestamp }, 'Invalid X-Webhook-Timestamp header value');
     return false;
   }
   const ageSeconds = Math.abs(Math.floor(Date.now() / 1000) - requestTime);
   if (ageSeconds > MAX_WEBHOOK_TIMESTAMP_AGE_SECONDS) {
-    console.warn(
-      `[ManusVerifier] Webhook timestamp is ${ageSeconds}s old (max ${MAX_WEBHOOK_TIMESTAMP_AGE_SECONDS}s)`,
+    log.warn(
+      { ageSeconds, maxAge: MAX_WEBHOOK_TIMESTAMP_AGE_SECONDS },
+      'Webhook timestamp too old',
     );
     return false;
   }
@@ -87,19 +91,19 @@ export async function verifyManusWebhookSignature(
   const bodyHash = createHash('sha256').update(rawBody).digest('hex');
   const signedContent = `${timestamp}.${webhookUrl}.${bodyHash}`;
 
-  console.log('[ManusVerifier] Signed content components', {
+  log.debug({
     timestamp,
     webhookUrl,
     bodyHashPreview: bodyHash.slice(0, 16) + '…',
     signedContentPreview: signedContent.slice(0, 80) + '…',
-  });
+  }, 'Signed content components');
 
   // 3. Fetch (or use cached) Manus public key.
   let publicKeyPem: string;
   try {
     publicKeyPem = await getManusPublicKey();
   } catch (err) {
-    console.error('[ManusVerifier] Could not retrieve Manus public key:', err);
+    log.error({ err }, 'Could not retrieve Manus public key');
     return false;
   }
 
@@ -109,10 +113,10 @@ export async function verifyManusWebhookSignature(
     const verifier = createVerify('RSA-SHA256');
     verifier.update(signedContent, 'utf8');
     const result = verifier.verify(publicKeyPem, signatureBuffer);
-    console.log('[ManusVerifier] Signature verify result:', result);
+    log.debug({ result }, 'Signature verify result');
     return result;
   } catch (err) {
-    console.error('[ManusVerifier] Signature verification threw an error:', err);
+    log.error({ err }, 'Signature verification threw an error');
     return false;
   }
 }

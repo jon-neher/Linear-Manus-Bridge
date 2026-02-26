@@ -1,4 +1,7 @@
 import { linearGql } from './linearGql';
+import { createLogger } from './logger';
+
+const log = createLogger('linearAgentSession');
 
 // ─── Agent Activity types ────────────────────────────────────────────────────
 
@@ -52,12 +55,15 @@ export async function createAgentActivity(
   accessToken: string,
   options: AgentActivitySignalOptions = {},
 ): Promise<string | null> {
-  console.log('[linearAgentSession] createAgentActivity', {
-    agentSessionId,
-    type: content.type,
-    signal: options.signal ?? '(none)',
-    ephemeral: options.ephemeral ?? false,
-  });
+  log.info(
+    {
+      agentSessionId,
+      type: content.type,
+      signal: options.signal ?? '(none)',
+      ephemeral: options.ephemeral ?? false,
+    },
+    'createAgentActivity',
+  );
   const data = await linearGql<{
     agentActivityCreate: { success: boolean; agentActivity?: { id: string } };
   }>(
@@ -80,10 +86,13 @@ export async function createAgentActivity(
   );
 
   const activityId = data.agentActivityCreate.agentActivity?.id ?? null;
-  console.log('[linearAgentSession] createAgentActivity result', {
-    success: data.agentActivityCreate.success,
-    activityId: activityId ?? '(none)',
-  });
+  log.info(
+    {
+      success: data.agentActivityCreate.success,
+      activityId: activityId ?? '(none)',
+    },
+    'createAgentActivity result',
+  );
   return activityId;
 }
 

@@ -6,6 +6,9 @@ import {
   type InstallationRecord,
 } from './installationStore';
 import { LINEAR_GRAPHQL_URL, TOKEN_REFRESH_BUFFER_MS } from './constants';
+import { createLogger } from './logger';
+
+const log = createLogger('linearAuth');
 
 export class TokenRevokedError extends Error {
   constructor(public readonly workspaceId: string, message?: string) {
@@ -119,7 +122,7 @@ export async function getValidToken(workspaceId: string): Promise<string> {
  */
 export function handleApiRevocation(workspaceId: string): void {
   markInstallationInactive(workspaceId);
-  console.warn(`Installation for workspace ${workspaceId} marked inactive due to token revocation`);
+  log.warn({ workspaceId }, 'Installation marked inactive due to token revocation');
 }
 
 /**

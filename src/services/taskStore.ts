@@ -1,6 +1,9 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import type { ManusAttachment } from './manusClient';
+import { createLogger } from './logger';
+
+const log = createLogger('taskStore');
 
 export interface TaskRecord {
   linearIssueId: string;
@@ -52,8 +55,8 @@ function loadMapFromFile<T>(path: string): Map<string, T> {
     const raw = readFileSync(path, 'utf8');
     const entries: [string, T][] = JSON.parse(raw);
     return new Map(entries);
-  } catch {
-    console.error(`[taskStore] Failed to load ${path}; starting fresh`);
+  } catch (err) {
+    log.error({ path, err }, 'Failed to load file; starting fresh');
     return new Map();
   }
 }
@@ -62,7 +65,7 @@ function persistMap<T>(map: Map<string, T>, path: string): void {
   try {
     writeFileSync(path, JSON.stringify(Array.from(map.entries())), 'utf8');
   } catch (err) {
-    console.error(`[taskStore] Failed to persist ${path}:`, err);
+    log.error({ path, err }, 'Failed to persist file');
   }
 }
 
@@ -71,13 +74,13 @@ function initStores(): void {
   const restoredPending = loadMapFromFile<PendingTaskRecord>(PENDING_STORE_PATH);
   for (const [k, v] of restoredPending) pendingTaskStore.set(k, v);
   if (restoredPending.size > 0) {
-    console.log(`[taskStore] Restored ${restoredPending.size} pending task(s) from disk`);
+    log.info({ count: restoredPending.size }, 'Restored pending task(s) from disk');
   }
 
   const restoredTasks = loadMapFromFile<TaskRecord>(TASK_STORE_PATH);
   for (const [k, v] of restoredTasks) taskStore.set(k, v);
   if (restoredTasks.size > 0) {
-    console.log(`[taskStore] Restored ${restoredTasks.size} task(s) from disk`);
+    log.info({ count: restoredTasks.size }, 'Restored task(s) from disk');
   }
 }
 
@@ -155,7 +158,7 @@ export function removeTasksByIssue(issueId: string): number {
   }
   if (removed > 0) {
     persistMap(taskStore, TASK_STORE_PATH);
-    console.log(`[taskStore] Cleaned up ${removed} stale task record(s) for issue ${issueId}`);
+    log.info({ issueId, count: removed }, 'Cleaned up stale task record(s)');
   }
   return removed;
 }
@@ -214,7 +217,7 @@ function persistPlans(): void {
   try {
     writeFileSync(PLAN_STORE_PATH, JSON.stringify(Array.from(planStore.entries())), 'utf8');
   } catch (err) {
-    console.error('[taskStore] Failed to persist plans:', err);
+    log.error({ err }, 'Failed to persist plans');
   }
 }
 
@@ -225,10 +228,10 @@ function loadPlans(): void {
     const entries: [string, PlanStep[]][] = JSON.parse(raw);
     for (const [k, v] of entries) planStore.set(k, v);
     if (entries.length > 0) {
-      console.log(`[taskStore] Restored ${entries.length} plan(s) from disk`);
+      log.info({ count: entries.length }, 'Restored plan(s) from disk');
     }
-  } catch {
-    console.error('[taskStore] Failed to load plans; starting fresh');
+  } catch (err) {
+    log.error({ err }, 'Failed to load plans; starting fresh');
   }
 }
 

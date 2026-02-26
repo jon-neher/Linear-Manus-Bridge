@@ -2,6 +2,9 @@ import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypt
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { ENCRYPTION_ALGORITHM } from './constants';
+import { createLogger } from './logger';
+
+const log = createLogger('installationStore');
 
 function getDataDir(): string {
   const dir = process.env.DATA_DIR ?? process.cwd();
@@ -60,8 +63,8 @@ function loadStore(): Map<string, InstallationRecord> {
     const decrypted = decrypt(raw);
     const entries: [string, InstallationRecord][] = JSON.parse(decrypted);
     return new Map(entries);
-  } catch {
-    console.error('Failed to load installation store; starting fresh');
+  } catch (err) {
+    log.error({ err }, 'Failed to load installation store; starting fresh');
     return new Map();
   }
 }

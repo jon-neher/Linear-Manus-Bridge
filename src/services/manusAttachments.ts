@@ -1,6 +1,9 @@
 import type { IssueDetails } from './linearClient';
 import type { ManusAttachment } from './manusClient';
 import { createFileRecord, uploadFileToManus } from './manusClient';
+import { createLogger } from './logger';
+
+const log = createLogger('manusAttachments');
 
 interface Base64Block {
   data: string;
@@ -54,11 +57,7 @@ function parseBase64Blocks(description: string | null | undefined): Base64Block[
     const data = body.replace(/\s+/g, '');
     const approxBytes = Math.floor((data.length * 3) / 4);
     if (approxBytes > MAX_BASE64_BYTES) {
-      console.warn('[manusAttachments] Skipping base64 block over limit', {
-        filename,
-        sizeBytes: approxBytes,
-        maxBytes: MAX_BASE64_BYTES,
-      });
+      log.warn({ filename, sizeBytes: approxBytes, maxBytes: MAX_BASE64_BYTES }, 'Skipping base64 block over limit');
       continue;
     }
     blocks.push({ data, filename, mimeType });
@@ -78,7 +77,7 @@ function collectUrls(texts: string[]): string[] {
     if (!matches) continue;
     for (const match of matches) {
       if (urls.size >= MAX_URLS) {
-        console.warn('[manusAttachments] URL limit reached', { maxUrls: MAX_URLS });
+        log.warn({ maxUrls: MAX_URLS }, 'URL limit reached');
         return Array.from(urls);
       }
       urls.add(match);

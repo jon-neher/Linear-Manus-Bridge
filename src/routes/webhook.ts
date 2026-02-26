@@ -19,6 +19,9 @@ import {
 } from '../services/linearClient';
 import { verifyManusWebhookSignature } from '../services/manusWebhookVerifier';
 import { createAgentActivity, updateAgentSession } from '../services/linearAgentSession';
+import { createLogger } from '../services/logger';
+
+const log = createLogger('webhook/manus');
 
 const router = Router();
 const verboseWebhookLogs = process.env.LOG_VERBOSE_WEBHOOKS === 'true';
@@ -104,7 +107,7 @@ function buildWebhookUrl(req: Request): string {
   if (baseUrl) {
     return `${baseUrl}${req.originalUrl}`;
   }
-  console.warn('[webhook/manus] SERVICE_BASE_URL not set; using request headers for signature URL');
+  log.warn('SERVICE_BASE_URL not set; using request headers for signature URL');
   const proto = (req.headers['x-forwarded-proto'] as string) ?? req.protocol ?? 'https';
   const host = (req.headers['x-forwarded-host'] as string) ?? req.headers.host ?? 'localhost';
   return `${proto}://${host}${req.originalUrl}`;
@@ -121,51 +124,51 @@ async function checkManusSignature(req: RawBodyRequest, res: Response): Promise<
   const timestamp = req.headers['x-webhook-timestamp'] as string | undefined;
   const rawBody = req.rawBody;
 
-  console.log('[webhook/manus] checkManusSignature', {
+  log.debug({
     hasSignature: !!signature,
     hasTimestamp: !!timestamp,
     hasRawBody: !!rawBody,
     rawBodyLength: rawBody?.length ?? 0,
-  });
+  }, 'checkManusSignature');
 
   // If neither security header is present, Manus has not sent a signed request.
   // This can happen during the initial webhook registration verification ping.
   if (!signature && !timestamp) {
-    console.log('[webhook/manus] No signature headers — permissive pass');
+    log.debug('No signature headers — permissive pass');
     return true;
   }
 
   if (!signature || !timestamp) {
-    console.warn('[webhook/manus] Partial signature headers — rejecting', {
+    log.warn({
       signature: signature ? '(present)' : '(missing)',
       timestamp: timestamp ? '(present)' : '(missing)',
-    });
+    }, 'Partial signature headers — rejecting');
     res.status(401).json({ error: 'Unauthorized: missing required signature headers' });
     return false;
   }
 
   if (!rawBody) {
-    console.error('[webhook/manus] rawBody unavailable for verification');
+    log.error('rawBody unavailable for verification');
     res.status(500).json({ error: 'Raw body unavailable for signature verification' });
     return false;
   }
 
   const webhookUrl = buildWebhookUrl(req);
-  console.log('[webhook/manus] Verifying signature', {
+  log.debug({
     webhookUrl,
     timestamp,
     signaturePreview: signature.slice(0, 20) + '…',
-  });
+  }, 'Verifying signature');
 
   const valid = await verifyManusWebhookSignature(rawBody, signature, timestamp, webhookUrl);
 
   if (!valid) {
-    console.warn('[webhook/manus] Signature verification FAILED');
+    log.warn('Signature verification FAILED');
     res.status(401).json({ error: 'Unauthorized: invalid webhook signature' });
     return false;
   }
 
-  console.log('[webhook/manus] Signature verification OK');
+  log.debug('Signature verification OK');
   return true;
 }
 
@@ -234,7 +237,7 @@ router.post('/manus/progress', async (req: RawBodyRequest, res: Response): Promi
   if (verboseWebhookLogs) {
     progressLog.bodyPreview = JSON.stringify(req.body)?.slice(0, 500);
   }
-  console.log('[webhook/manus/progress] ── Incoming request ──', progressLog);
+  log.info(progressLog, 'Incoming progress request');
 
   if (!(await checkManusSignature(req, res))) return;
 
@@ -295,7 +298,7 @@ router.post('/manus/progress', async (req: RawBodyRequest, res: Response): Promi
       }
     }
   } catch (err) {
-    console.error('Failed to post progress comment:', err);
+    log.error({ err }, 'Failed to post progress comment');
     res.status(502).json({ error: `Comment failed: ${(err as Error).message}` });
     return;
   }
@@ -308,7 +311,7 @@ router.post('/manus/progress', async (req: RawBodyRequest, res: Response): Promi
       type: 'thought',
       body: progressMessage,
     }, accessToken, { ephemeral: true }).catch((err) =>
-      console.error('[webhook/manus/progress] Failed to emit activity:', err),
+      log.error({ err }, 'Failed to emit activity'),
     );
   }
 
@@ -334,7 +337,7 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
   if (verboseWebhookLogs) {
     requestLog.bodyPreview = JSON.stringify(req.body)?.slice(0, 500);
   }
-  console.log('[webhook/manus] ── Incoming request ──', requestLog);
+  log.info(requestLog, 'Incoming request');
 
   if (!(await checkManusSignature(req, res))) return;
 
@@ -364,7 +367,7 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
         }
         if (externalUrls.length > 0) {
           await updateAgentSession(stored.agentSessionId, { externalUrls }, accessToken).catch((err) =>
-            console.error('[webhook/manus] Failed to update session external URLs:', err),
+            log.error({ err }, 'Failed to update session external URLs'),
           );
         }
 
@@ -373,15 +376,15 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
             type: 'thought',
             body: `Manus is working on: ${createdDetail.task_title}`,
           }, accessToken).catch((err) =>
-            console.error('[webhook/manus] Failed to emit task_title activity:', err),
+            log.error({ err }, 'Failed to emit task_title activity'),
           );
         }
       } catch (err) {
-        console.error('[webhook/manus] task_created activity failed:', err);
+        log.error({ err }, 'task_created activity failed');
       }
     }
 
-    console.log('[webhook/manus] task_created acknowledged:', createdTaskId);
+    log.info({ taskId: createdTaskId }, 'task_created acknowledged');
     res.json({ ok: true });
     return;
   }
@@ -411,7 +414,7 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
     const workspaceId = stored?.workspaceId ?? progressPayload.metadata?.workspace_id;
 
     if (!issueId || !workspaceId) {
-      console.warn('[webhook/manus] task_progress: cannot resolve context', { progressTaskId });
+      log.warn({ progressTaskId }, 'task_progress: cannot resolve context');
       res.json({ ok: true });
       return;
     }
@@ -425,14 +428,14 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
       // Handle plan updates - update Linear agent session plan
       if (progressType === 'plan_update' && stored?.agentSessionId) {
         const plan = addPlanStep(progressTaskId, progressMessage);
-        console.log('[webhook/manus] Plan updated:', {
+        log.info({
           taskId: progressTaskId,
           steps: plan.length,
           latest: progressMessage.slice(0, 50) + (progressMessage.length > 50 ? '…' : ''),
-        });
+        }, 'Plan updated');
 
         await updateAgentSession(stored.agentSessionId, { plan }, accessToken).catch((err) =>
-          console.error('[webhook/manus] Failed to update agent session plan:', err),
+          log.error({ err }, 'Failed to update agent session plan'),
         );
       }
 
@@ -443,7 +446,7 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
       );
       const parentId = stored?.parentCommentId;
       const commentId = await postComment(issueId, commentBody, accessToken, parentId).catch((err) => {
-        console.error('[webhook/manus] task_progress comment failed:', err);
+        log.error({ err }, 'task_progress comment failed');
         return null;
       });
       if (commentId) {
@@ -461,21 +464,21 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
           action: 'Manus progress',
           result: progressMessage,
         }, accessToken).catch((err) =>
-          console.error('[webhook/manus] task_progress activity failed:', err),
+          log.error({ err }, 'task_progress activity failed'),
         );
       }
     } catch (err) {
-      console.error('[webhook/manus] task_progress failed:', err);
+      log.error({ err }, 'task_progress failed');
     }
 
-    console.log('[webhook/manus] task_progress acknowledged:', progressTaskId);
+    log.info({ progressTaskId }, 'task_progress acknowledged');
     res.json({ ok: true });
     return;
   }
 
   // Handle task_stopped (and legacy fallback) events
   if (eventType && eventType !== 'task_stopped') {
-    console.warn('[webhook/manus] Unrecognized event_type:', eventType);
+    log.warn({ eventType }, 'Unrecognized event_type');
     res.json({ ok: true, ignored: true, reason: `unknown event_type: ${eventType}` });
     return;
   }
@@ -484,13 +487,13 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
   const detail = payload.task_detail;
   const taskId = detail?.task_id ?? payload.task_id;
 
-  console.log('[webhook/manus] task_stopped received', {
+  log.info({
     taskId: taskId ?? '(missing)',
     stopReason: detail?.stop_reason ?? '(none)',
     hasDetail: !!detail,
     hasMessage: !!detail?.message,
     legacyStatus: payload.status ?? '(none)',
-  });
+  }, 'task_stopped received');
 
   if (!taskId) {
     res.status(400).json({ error: 'Missing required field: task_id' });
@@ -503,14 +506,14 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
   const teamId = stored?.linearTeamId ?? payload.metadata?.linear_team_id;
   const workspaceId = stored?.workspaceId ?? payload.metadata?.workspace_id;
 
-  console.log('[webhook/manus] task_stopped context', {
+  log.debug({
     taskId,
     hasStoredRecord: !!stored,
     issueId: issueId ?? '(missing)',
     teamId: teamId ?? '(missing)',
     workspaceId: workspaceId ?? '(missing)',
     agentSessionId: stored?.agentSessionId ?? '(none)',
-  });
+  }, 'task_stopped context');
 
   if (!issueId || !workspaceId) {
     res.status(422).json({
@@ -558,7 +561,7 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
       updateQuestionCommentId(taskId, commentId);
     }
   } catch (err) {
-    console.error('Failed to post Linear comment:', err);
+    log.error({ err }, 'Failed to post Linear comment');
     res.status(502).json({ error: `Comment failed: ${(err as Error).message}` });
     return;
   }
@@ -569,10 +572,10 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
       if (stateId) {
         await updateIssueState(issueId, stateId, accessToken);
       } else {
-        console.warn(`State "${targetStateName}" not found for team ${teamId}`);
+        log.warn({ teamId, targetStateName }, 'State not found for team');
       }
     } catch (err) {
-      console.error('Failed to update issue state:', err);
+      log.error({ err }, 'Failed to update issue state');
     }
   }
 
@@ -587,7 +590,7 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
         type: 'elicitation',
         body: question,
       }, accessToken).catch((err) =>
-        console.error('[webhook/manus] Failed to emit ask activity:', err),
+        log.error({ err }, 'Failed to emit ask activity'),
       );
     } else {
       // Task completed — emit a final response
@@ -604,7 +607,7 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
         type: 'response',
         body: `${resultBody}${attachmentLinks}${prLink}${viewLink}`,
       }, accessToken).catch((err) =>
-        console.error('[webhook/manus] Failed to emit response activity:', err),
+        log.error({ err }, 'Failed to emit response activity'),
       );
 
       // Update external URLs to include PR if present
@@ -617,7 +620,7 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
           externalUrls.push({ label: 'View Pull Request', url: prUrl });
         }
         await updateAgentSession(sessionId, { externalUrls }, accessToken).catch((err) =>
-          console.error('[webhook/manus] Failed to update session external URLs:', err),
+          log.error({ err }, 'Failed to update session external URLs'),
         );
       }
     }
@@ -629,7 +632,7 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
       const completedPlan = completeAllPlanSteps(taskId);
       if (completedPlan && completedPlan.length > 0) {
         await updateAgentSession(sessionId, { plan: completedPlan }, accessToken).catch((err) =>
-          console.error('[webhook/manus] Failed to update completed plan:', err),
+          log.error({ err }, 'Failed to update completed plan'),
         );
       }
     }
@@ -637,7 +640,7 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
     clearPlan(taskId);
   } else {
     // Task is asking for input - keep the plan as-is for context
-    console.log('[webhook/manus] Task needs input, keeping plan for context');
+    log.debug('Task needs input, keeping plan for context');
   }
 
   res.json({ ok: true });

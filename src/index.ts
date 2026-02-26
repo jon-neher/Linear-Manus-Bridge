@@ -6,6 +6,9 @@ import linearWebhookRouter from './routes/linearWebhook';
 import manusWebhooksRouter from './routes/manusWebhooks';
 import { getAllTasks, getAllPendingTasks } from './services/taskStore';
 import { ensureManusWebhook } from './services/manusWebhooks';
+import { createLogger } from './services/logger';
+
+const log = createLogger('http');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -22,7 +25,7 @@ app.use(
 // Log every incoming request for debugging webhook delivery
 app.use((req, _res, next) => {
   if (req.path !== '/health') {
-    console.log(`[http] ${req.method} ${req.path}`);
+    log.info({ method: req.method, path: req.path }, 'incoming request');
   }
   next();
 });
@@ -55,11 +58,11 @@ app.use('/linear/webhook', linearWebhookRouter);
 app.use('/manus/webhooks', manusWebhooksRouter);
 
 app.listen(PORT, () => {
-  console.log(`Linear-Manus Bridge listening on port ${PORT}`);
+  log.info({ port: PORT }, 'Linear-Manus Bridge listening');
 
   // Register Manus webhook after server is ready (Manus sends a verification ping)
   ensureManusWebhook().catch((err) =>
-    console.error('[startup] Manus webhook registration failed:', err),
+    log.error({ err }, 'Manus webhook registration failed'),
   );
 });
 

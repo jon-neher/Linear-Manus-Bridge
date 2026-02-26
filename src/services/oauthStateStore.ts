@@ -1,6 +1,9 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { OAUTH_STATE_TTL_MS } from './constants';
+import { createLogger } from './logger';
+
+const log = createLogger('OAuthStateStore');
 
 function getDataDir(): string {
   const dir = process.env.DATA_DIR ?? process.cwd();
@@ -27,7 +30,7 @@ function persist(store: StateStore): void {
     writeFileSync(STORE_PATH, JSON.stringify(store), 'utf8');
   } catch (err) {
     // Non-fatal: fall back to in-memory only for this request cycle
-    console.error('[OAuthStateStore] Failed to persist state store:', err);
+    log.error({ err }, 'Failed to persist state store');
   }
 }
 
