@@ -3,6 +3,9 @@ import { join } from 'path';
 import { MANUS_API_BASE_URL } from './constants';
 import { fetchWithTimeout } from './fetchWithTimeout';
 import { isTimeoutError, handleTimeoutError } from './timeoutErrorHandler';
+import { createLogger } from './logger';
+
+const log = createLogger('manusWebhooks');
 
 interface CreateWebhookResponse {
   webhook_id: string;
@@ -28,7 +31,7 @@ function persistWebhookId(webhookId: string): void {
   try {
     writeFileSync(getWebhookStorePath(), JSON.stringify({ webhookId }), 'utf8');
   } catch (err) {
-    console.error('[manusWebhooks] Failed to persist webhook ID:', err);
+    log.error({ err }, 'Failed to persist webhook ID');
   }
 }
 
@@ -52,7 +55,7 @@ export async function createManusWebhook(url: string): Promise<{ webhookId: stri
       const text = await response.text();
       // 409 means the webhook URL already exists — treat as success
       if (response.status === 409) {
-        console.log('[manusWebhooks] Webhook URL already registered (409) — reusing existing');
+        log.info('Webhook URL already registered (409) — reusing existing');
         return { webhookId: '__existing__' };
       }
       throw new Error(`Manus webhook creation failed (${response.status}): ${text}`);
@@ -84,7 +87,7 @@ export async function deleteManusWebhook(webhookId: string): Promise<void> {
 
     if (!response.ok && response.status !== 404) {
       const text = await response.text();
-      console.warn(`[manusWebhooks] Delete webhook failed (${response.status}): ${text}`);
+      log.warn({ status: response.status, text }, 'Delete webhook failed');
     }
   } catch (error) {
     if (isTimeoutError(error)) {
@@ -105,11 +108,11 @@ export async function deleteManusWebhook(webhookId: string): Promise<void> {
 export async function ensureManusWebhook(): Promise<void> {
   const baseUrl = process.env.SERVICE_BASE_URL?.replace(/\/$/, '');
   if (!baseUrl) {
-    console.warn('[manusWebhooks] SERVICE_BASE_URL not set — skipping webhook registration');
+    log.warn('SERVICE_BASE_URL not set — skipping webhook registration');
     return;
   }
   if (!process.env.MANUS_API_KEY) {
-    console.warn('[manusWebhooks] MANUS_API_KEY not set — skipping webhook registration');
+    log.warn('MANUS_API_KEY not set — skipping webhook registration');
     return;
   }
 
@@ -118,17 +121,17 @@ export async function ensureManusWebhook(): Promise<void> {
   // Clean up previous webhook if stored
   const previousId = loadStoredWebhookId();
   if (previousId) {
-    console.log('[manusWebhooks] Deleting previous webhook:', previousId);
+    log.info({ previousId }, 'Deleting previous webhook');
     await deleteManusWebhook(previousId).catch((err) =>
-      console.warn('[manusWebhooks] Failed to delete previous webhook:', err)
+      log.warn({ err }, 'Failed to delete previous webhook')
     );
   }
 
   try {
     const { webhookId } = await createManusWebhook(webhookUrl);
     persistWebhookId(webhookId);
-    console.log('[manusWebhooks] Webhook registered:', { webhookId, url: webhookUrl });
+    log.info({ webhookId, url: webhookUrl }, 'Webhook registered');
   } catch (err) {
-    console.error('[manusWebhooks] Failed to register webhook:', err);
+    log.error({ err }, 'Failed to register webhook');
   }
 }

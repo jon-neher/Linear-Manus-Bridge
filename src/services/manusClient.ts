@@ -1,6 +1,9 @@
 import { MANUS_API_BASE_URL } from './constants';
 import { fetchWithTimeout } from './fetchWithTimeout';
 import { isTimeoutError, handleTimeoutError } from './timeoutErrorHandler';
+import { createLogger } from './logger';
+
+const log = createLogger('manusClient');
 
 interface ManusTaskResponse {
   task_id: string;
@@ -56,15 +59,18 @@ async function requestCreateTask(
     throw new Error('MANUS_API_KEY is not configured');
   }
 
-  console.log('[manusClient] requestCreateTask', {
-    agentProfile,
-    promptLength: prompt.length,
-    taskId: options.taskId ?? '(new)',
-    taskMode: options.taskMode ?? process.env.MANUS_TASK_MODE ?? 'agent',
-    interactiveMode: options.interactiveMode ?? true,
-    attachmentCount: options.attachments?.length ?? 0,
-    connectorCount: options.connectors?.length ?? 0,
-  });
+  log.info(
+    {
+      agentProfile,
+      promptLength: prompt.length,
+      taskId: options.taskId ?? '(new)',
+      taskMode: options.taskMode ?? process.env.MANUS_TASK_MODE ?? 'agent',
+      interactiveMode: options.interactiveMode ?? true,
+      attachmentCount: options.attachments?.length ?? 0,
+      connectorCount: options.connectors?.length ?? 0,
+    },
+    'requestCreateTask'
+  );
 
   try {
     const response = await fetchWithTimeout(`${MANUS_API_BASE_URL}/v1/tasks`, {
@@ -87,23 +93,20 @@ async function requestCreateTask(
 
     if (!response.ok) {
       const text = await response.text();
-      console.error('[manusClient] requestCreateTask failed', {
-        status: response.status,
-        text: text.slice(0, 500),
-      });
+      log.error({ status: response.status, text: text.slice(0, 500) }, 'requestCreateTask failed');
       return { ok: false, status: response.status, text };
     }
 
     const data = (await response.json()) as ManusTaskResponse;
-    console.log('[manusClient] requestCreateTask success', {
-      taskId: data.task_id,
-      taskUrl: data.task_url ?? '(none)',
-    });
+    log.info(
+      { taskId: data.task_id, taskUrl: data.task_url ?? '(none)' },
+      'requestCreateTask success'
+    );
     return { ok: true, data };
   } catch (error) {
     if (isTimeoutError(error)) {
       const timeoutMsg = handleTimeoutError('requestCreateTask', error);
-      console.error('[manusClient] requestCreateTask timeout', { error: timeoutMsg });
+      log.error({ error: timeoutMsg }, 'requestCreateTask timeout');
       return { ok: false, status: 504, text: timeoutMsg };
     }
     throw error;

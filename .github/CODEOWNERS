@@ -1,0 +1,14 @@
+# CODEOWNERS - Define owners for code review requirements
+# See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository-for-collabor needs/about-code-owners
+
+# Default owners for everything
+* @jon-neher
+
+# Routes
+/src/routes/ @jon-neher
+
+# Services
+/src/services/ @jon-neher
+
+# Tests
+/src/__tests__/ @jon-neher
