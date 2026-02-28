@@ -201,7 +201,7 @@ router.get('/installations', (_req: Request, res: Response): void => {
  * Returns the token status for a workspace, including whether re-authorization is needed.
  */
 router.get('/status/:workspaceId', (req: Request, res: Response): void => {
-  const { workspaceId } = req.params;
+  const { workspaceId } = req.params as { workspaceId: string };
 
   const record = getInstallationByWorkspace(workspaceId);
   if (!record) {
