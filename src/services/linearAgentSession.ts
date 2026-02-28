@@ -50,7 +50,7 @@ export async function createAgentActivity(
   agentSessionId: string,
   content: AgentActivityContent,
   accessToken: string,
-  options: AgentActivitySignalOptions = {},
+  options: AgentActivitySignalOptions = {}
 ): Promise<string | null> {
   console.log('[linearAgentSession] createAgentActivity', {
     agentSessionId,
@@ -76,7 +76,7 @@ export async function createAgentActivity(
         ephemeral: options.ephemeral,
       },
     },
-    accessToken,
+    accessToken
   );
 
   const activityId = data.agentActivityCreate.agentActivity?.id ?? null;
@@ -102,7 +102,7 @@ export interface AgentSessionUpdateData {
 export async function updateAgentSession(
   agentSessionId: string,
   data: AgentSessionUpdateData,
-  accessToken: string,
+  accessToken: string
 ): Promise<void> {
   await linearGql<{ agentSessionUpdate: { success: boolean } }>(
     `mutation AgentSessionUpdate($agentSessionId: String!, $data: AgentSessionUpdateInput!) {
@@ -111,7 +111,7 @@ export async function updateAgentSession(
       }
     }`,
     { agentSessionId, data },
-    accessToken,
+    accessToken
   );
 }
 
@@ -123,23 +123,18 @@ export async function emitAuthElicitation(
   agentSessionId: string,
   authUrl: string,
   accessToken: string,
-  options: { providerName?: string; userId?: string } = {},
+  options: { providerName?: string; userId?: string } = {}
 ): Promise<string | null> {
   const body = options.providerName
     ? `Please link your ${options.providerName} account to continue.`
     : 'Please link your account to continue.';
 
-  return createAgentActivity(
-    agentSessionId,
-    { type: 'elicitation', body },
-    accessToken,
-    {
-      signal: 'auth',
-      signalMetadata: {
-        url: authUrl,
-        providerName: options.providerName,
-        userId: options.userId,
-      },
+  return createAgentActivity(agentSessionId, { type: 'elicitation', body }, accessToken, {
+    signal: 'auth',
+    signalMetadata: {
+      url: authUrl,
+      providerName: options.providerName,
+      userId: options.userId,
     },
-  );
+  });
 }

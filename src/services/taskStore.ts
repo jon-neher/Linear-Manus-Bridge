@@ -170,7 +170,7 @@ export function getPendingTask(commentId: string): PendingTaskRecord | undefined
 }
 
 export function findPendingTaskBySession(
-  agentSessionId: string,
+  agentSessionId: string
 ): { commentId: string; record: PendingTaskRecord } | undefined {
   for (const [commentId, record] of pendingTaskStore.entries()) {
     if (record.agentSessionId === agentSessionId) {
@@ -181,7 +181,7 @@ export function findPendingTaskBySession(
 }
 
 export function findPendingTaskByIssue(
-  issueId: string,
+  issueId: string
 ): { commentId: string; record: PendingTaskRecord } | undefined {
   for (const [commentId, record] of pendingTaskStore.entries()) {
     if (record.linearIssueId === issueId) {
@@ -254,7 +254,7 @@ export function addPlanStep(taskId: string, stepContent: string): PlanStep[] {
 
   // Check if this step already exists
   const existingIndex = existing.findIndex(
-    (s) => s.content.trim().toLowerCase() === normalizedContent.toLowerCase(),
+    (s) => s.content.trim().toLowerCase() === normalizedContent.toLowerCase()
   );
 
   if (existingIndex >= 0) {

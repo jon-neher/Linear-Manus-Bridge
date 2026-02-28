@@ -30,7 +30,7 @@ describe('manusClient', () => {
         vi.fn().mockResolvedValue({
           ok: true,
           json: async () => ({ task_id: 'task-123', task_url: 'https://manus.ai/task/123' }),
-        }),
+        })
       );
 
       const result = await createTaskWithFallback('Do something');
@@ -47,7 +47,7 @@ describe('manusClient', () => {
       delete process.env.MANUS_API_KEY;
 
       await expect(createTaskWithFallback('Do something')).rejects.toThrow(
-        'MANUS_API_KEY is not configured',
+        'MANUS_API_KEY is not configured'
       );
     });
 
@@ -58,11 +58,11 @@ describe('manusClient', () => {
           ok: false,
           status: 500,
           text: async () => 'Internal Server Error',
-        }),
+        })
       );
 
       await expect(createTaskWithFallback('Do something')).rejects.toThrow(
-        'Manus task creation failed (500)',
+        'Manus task creation failed (500)'
       );
     });
 
@@ -72,11 +72,11 @@ describe('manusClient', () => {
         vi.fn().mockResolvedValue({
           ok: true,
           json: async () => ({}),
-        }),
+        })
       );
 
       await expect(createTaskWithFallback('Do something')).rejects.toThrow(
-        'Manus response missing task_id',
+        'Manus response missing task_id'
       );
     });
 
@@ -139,7 +139,7 @@ describe('manusClient', () => {
         vi.fn().mockResolvedValue({
           ok: true,
           json: async () => ({ id: 'file-1', upload_url: 'https://upload' }),
-        }),
+        })
       );
 
       const result = await createFileRecord('data.txt');
@@ -156,7 +156,7 @@ describe('manusClient', () => {
       await uploadFileToManus('https://upload', Buffer.from('data'), 'text/plain');
       expect(mockFetch).toHaveBeenCalledWith(
         'https://upload',
-        expect.objectContaining({ method: 'PUT' }),
+        expect.objectContaining({ method: 'PUT' })
       );
     });
   });
@@ -168,7 +168,7 @@ describe('manusClient', () => {
         vi.fn().mockResolvedValue({
           ok: true,
           json: async () => ({ task_id: 'task-789', task_url: 'https://manus.ai/task/789' }),
-        }),
+        })
       );
 
       const result = await replyToTask('task-789', 'Here is more info');
@@ -187,7 +187,7 @@ describe('manusClient', () => {
           ok: false,
           status: 403,
           text: async () => 'Forbidden',
-        }),
+        })
       );
       await expect(replyToTask('task-1', 'msg')).rejects.toThrow('Manus reply failed (403)');
     });

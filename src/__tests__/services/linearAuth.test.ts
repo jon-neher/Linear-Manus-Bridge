@@ -103,7 +103,7 @@ describe('linearAuth', () => {
           access_token: 'new-access-token',
           refresh_token: 'new-refresh-token',
           expires_in: 3600,
-        }),
+        })
       );
 
       const token = await getValidToken(WORKSPACE_ID);
@@ -113,13 +113,13 @@ describe('linearAuth', () => {
         expect.objectContaining({
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        }),
+        })
       );
       expect(updateInstallationTokens).toHaveBeenCalledWith(
         WORKSPACE_ID,
         'new-access-token',
         'new-refresh-token',
-        expect.any(Number),
+        expect.any(Number)
       );
     });
 
@@ -130,9 +130,7 @@ describe('linearAuth', () => {
     });
 
     it('throws TokenRevokedError when installation is inactive', async () => {
-      vi.mocked(getInstallationByWorkspace).mockReturnValue(
-        makeRecord({ active: false }),
-      );
+      vi.mocked(getInstallationByWorkspace).mockReturnValue(makeRecord({ active: false }));
 
       await expect(getValidToken(WORKSPACE_ID)).rejects.toThrow(TokenRevokedError);
     });
@@ -141,9 +139,7 @@ describe('linearAuth', () => {
       const record = makeRecord({ expiresAt: Date.now() }); // expired
       vi.mocked(getInstallationByWorkspace).mockReturnValue(record);
 
-      globalThis.fetch = vi.fn().mockResolvedValue(
-        mockFetchResponse(false, 400, 'Bad Request'),
-      );
+      globalThis.fetch = vi.fn().mockResolvedValue(mockFetchResponse(false, 400, 'Bad Request'));
 
       await expect(getValidToken(WORKSPACE_ID)).rejects.toThrow(TokenRevokedError);
       expect(markInstallationInactive).toHaveBeenCalledWith(WORKSPACE_ID);
@@ -153,9 +149,7 @@ describe('linearAuth', () => {
       const record = makeRecord({ expiresAt: Date.now() }); // expired
       vi.mocked(getInstallationByWorkspace).mockReturnValue(record);
 
-      globalThis.fetch = vi.fn().mockResolvedValue(
-        mockFetchResponse(false, 401, 'Unauthorized'),
-      );
+      globalThis.fetch = vi.fn().mockResolvedValue(mockFetchResponse(false, 401, 'Unauthorized'));
 
       await expect(getValidToken(WORKSPACE_ID)).rejects.toThrow(TokenRevokedError);
       expect(markInstallationInactive).toHaveBeenCalledWith(WORKSPACE_ID);
@@ -170,7 +164,7 @@ describe('linearAuth', () => {
           access_token: 'deduped-token',
           refresh_token: 'new-refresh',
           expires_in: 3600,
-        }),
+        })
       );
 
       const [token1, token2] = await Promise.all([
@@ -216,9 +210,9 @@ describe('linearAuth', () => {
       vi.mocked(getInstallationByWorkspace).mockReturnValue(record);
 
       const responseData = { viewer: { id: 'user-1' } };
-      globalThis.fetch = vi.fn().mockResolvedValue(
-        mockFetchResponse(true, 200, { data: responseData }),
-      );
+      globalThis.fetch = vi
+        .fn()
+        .mockResolvedValue(mockFetchResponse(true, 200, { data: responseData }));
 
       const result = await linearApiRequest(WORKSPACE_ID, {
         query: '{ viewer { id } }',
@@ -231,7 +225,7 @@ describe('linearAuth', () => {
           headers: expect.objectContaining({
             Authorization: `Bearer current-access-token`,
           }),
-        }),
+        })
       );
     });
 
@@ -252,23 +246,19 @@ describe('linearAuth', () => {
             access_token: 'refreshed-token',
             refresh_token: 'new-refresh',
             expires_in: 3600,
-          }),
+          })
         )
         // Retry API call succeeds
-        .mockResolvedValueOnce(
-          mockFetchResponse(true, 200, { data: responseData }),
-        );
+        .mockResolvedValueOnce(mockFetchResponse(true, 200, { data: responseData }));
 
       // Force expiry so getValidToken triggers a refresh on the retry path
-      vi.mocked(updateInstallationTokens).mockImplementation(
-        (wsId, at, rt, exp) => {
-          // After updateInstallationTokens is called with expiry 0,
-          // getInstallationByWorkspace should return an expired record
-          vi.mocked(getInstallationByWorkspace).mockReturnValue(
-            makeRecord({ accessToken: at, refreshToken: rt, expiresAt: exp }),
-          );
-        },
-      );
+      vi.mocked(updateInstallationTokens).mockImplementation((wsId, at, rt, exp) => {
+        // After updateInstallationTokens is called with expiry 0,
+        // getInstallationByWorkspace should return an expired record
+        vi.mocked(getInstallationByWorkspace).mockReturnValue(
+          makeRecord({ accessToken: at, refreshToken: rt, expiresAt: exp })
+        );
+      });
 
       const result = await linearApiRequest(WORKSPACE_ID, {
         query: '{ viewer { id } }',
@@ -291,21 +281,19 @@ describe('linearAuth', () => {
             access_token: 'refreshed-token',
             refresh_token: 'new-refresh',
             expires_in: 3600,
-          }),
+          })
         )
         .mockResolvedValueOnce(mockFetchResponse(false, 401, 'Still unauthorized'));
 
-      vi.mocked(updateInstallationTokens).mockImplementation(
-        (wsId, at, rt, exp) => {
-          vi.mocked(getInstallationByWorkspace).mockReturnValue(
-            makeRecord({ accessToken: at, refreshToken: rt, expiresAt: exp }),
-          );
-        },
-      );
+      vi.mocked(updateInstallationTokens).mockImplementation((wsId, at, rt, exp) => {
+        vi.mocked(getInstallationByWorkspace).mockReturnValue(
+          makeRecord({ accessToken: at, refreshToken: rt, expiresAt: exp })
+        );
+      });
 
-      await expect(
-        linearApiRequest(WORKSPACE_ID, { query: '{ viewer { id } }' }),
-      ).rejects.toThrow(TokenRevokedError);
+      await expect(linearApiRequest(WORKSPACE_ID, { query: '{ viewer { id } }' })).rejects.toThrow(
+        TokenRevokedError
+      );
       expect(markInstallationInactive).toHaveBeenCalledWith(WORKSPACE_ID);
     });
   });

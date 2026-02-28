@@ -23,7 +23,7 @@ describe('manusWebhooks', () => {
       vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({ webhook_id: 'wh-001' }),
-      }),
+      })
     );
 
     const result = await createManusWebhook('https://example.com/webhook');
@@ -35,7 +35,7 @@ describe('manusWebhooks', () => {
     delete process.env.MANUS_API_KEY;
 
     await expect(createManusWebhook('https://example.com/webhook')).rejects.toThrow(
-      'MANUS_API_KEY is not configured',
+      'MANUS_API_KEY is not configured'
     );
   });
 
@@ -46,11 +46,11 @@ describe('manusWebhooks', () => {
         ok: false,
         status: 422,
         text: async () => 'Unprocessable Entity',
-      }),
+      })
     );
 
     await expect(createManusWebhook('https://example.com/webhook')).rejects.toThrow(
-      'Manus webhook creation failed (422)',
+      'Manus webhook creation failed (422)'
     );
   });
 
@@ -60,11 +60,11 @@ describe('manusWebhooks', () => {
       vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({}),
-      }),
+      })
     );
 
     await expect(createManusWebhook('https://example.com/webhook')).rejects.toThrow(
-      'Manus webhook creation response missing webhook_id',
+      'Manus webhook creation response missing webhook_id'
     );
   });
 

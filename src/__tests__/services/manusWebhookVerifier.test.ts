@@ -65,7 +65,7 @@ describe('manusWebhookVerifier', () => {
       tamperedBody,
       signature,
       timestamp,
-      WEBHOOK_URL,
+      WEBHOOK_URL
     );
 
     expect(result).toBe(false);
@@ -82,7 +82,7 @@ describe('manusWebhookVerifier', () => {
       body,
       signature,
       expiredTimestamp,
-      WEBHOOK_URL,
+      WEBHOOK_URL
     );
 
     expect(result).toBe(false);
@@ -104,7 +104,7 @@ describe('manusWebhookVerifier', () => {
         ok: false,
         status: 500,
         text: async () => 'Internal Server Error',
-      }),
+      })
     );
 
     const body = Buffer.from(JSON.stringify({ event: 'task.completed' }));

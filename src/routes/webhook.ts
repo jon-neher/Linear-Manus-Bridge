@@ -11,12 +11,7 @@ import {
   clearPlan,
 } from '../services/taskStore';
 import { getValidToken } from '../services/linearAuth';
-import {
-  postComment,
-  updateComment,
-  findStateIdByName,
-  updateIssueState,
-} from '../services/linearClient';
+import { postComment, findStateIdByName, updateIssueState } from '../services/linearClient';
 import { verifyManusWebhookSignature } from '../services/manusWebhookVerifier';
 import { createAgentActivity, updateAgentSession } from '../services/linearAgentSession';
 
@@ -208,7 +203,7 @@ function formatLegacyResult(
   taskId: string,
   status: string,
   result?: string,
-  error?: string,
+  error?: string
 ): string {
   const lines: string[] = ['## Manus Task Result', ''];
   lines.push(`**Status:** ${status}`, '');
@@ -282,7 +277,7 @@ router.post('/manus/progress', async (req: RawBodyRequest, res: Response): Promi
 
   const commentBody = formatProgressComment(
     detail ?? { task_id: taskId, message: 'Progress update received.' },
-    taskId,
+    taskId
   );
 
   try {
@@ -304,12 +299,15 @@ router.post('/manus/progress', async (req: RawBodyRequest, res: Response): Promi
   const sessionId = stored?.agentSessionId;
   if (sessionId) {
     const progressMessage = detail?.message?.trim() || 'Working…';
-    await createAgentActivity(sessionId, {
-      type: 'thought',
-      body: progressMessage,
-    }, accessToken, { ephemeral: true }).catch((err) =>
-      console.error('[webhook/manus/progress] Failed to emit activity:', err),
-    );
+    await createAgentActivity(
+      sessionId,
+      {
+        type: 'thought',
+        body: progressMessage,
+      },
+      accessToken,
+      { ephemeral: true }
+    ).catch((err) => console.error('[webhook/manus/progress] Failed to emit activity:', err));
   }
 
   res.json({ ok: true });
@@ -363,17 +361,21 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
           externalUrls.push({ label: 'View Pull Request', url: createdDetail.pull_request_url });
         }
         if (externalUrls.length > 0) {
-          await updateAgentSession(stored.agentSessionId, { externalUrls }, accessToken).catch((err) =>
-            console.error('[webhook/manus] Failed to update session external URLs:', err),
+          await updateAgentSession(stored.agentSessionId, { externalUrls }, accessToken).catch(
+            (err) => console.error('[webhook/manus] Failed to update session external URLs:', err)
           );
         }
 
         if (createdDetail?.task_title) {
-          await createAgentActivity(stored.agentSessionId, {
-            type: 'thought',
-            body: `Manus is working on: ${createdDetail.task_title}`,
-          }, accessToken).catch((err) =>
-            console.error('[webhook/manus] Failed to emit task_title activity:', err),
+          await createAgentActivity(
+            stored.agentSessionId,
+            {
+              type: 'thought',
+              body: `Manus is working on: ${createdDetail.task_title}`,
+            },
+            accessToken
+          ).catch((err) =>
+            console.error('[webhook/manus] Failed to emit task_title activity:', err)
           );
         }
       } catch (err) {
@@ -398,7 +400,11 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
     }
 
     let stored = getTask(progressTaskId);
-    if (!stored && progressPayload.metadata?.linear_issue_id && progressPayload.metadata.workspace_id) {
+    if (
+      !stored &&
+      progressPayload.metadata?.linear_issue_id &&
+      progressPayload.metadata.workspace_id
+    ) {
       storeTask(progressTaskId, {
         linearIssueId: progressPayload.metadata.linear_issue_id,
         linearTeamId: progressPayload.metadata.linear_team_id,
@@ -438,20 +444,22 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
         });
 
         await updateAgentSession(stored.agentSessionId, { plan }, accessToken).catch((err) =>
-          console.error('[webhook/manus] Failed to update agent session plan:', err),
+          console.error('[webhook/manus] Failed to update agent session plan:', err)
         );
       }
 
       // Post progress as a threaded reply under the parent comment
       const commentBody = formatProgressComment(
         progressDetail ?? { task_id: progressTaskId, message: progressMessage },
-        progressTaskId,
+        progressTaskId
       );
       const parentId = stored?.parentCommentId;
-      const commentId = await postComment(issueId, commentBody, accessToken, parentId).catch((err) => {
-        console.error('[webhook/manus] task_progress comment failed:', err);
-        return null;
-      });
+      const commentId = await postComment(issueId, commentBody, accessToken, parentId).catch(
+        (err) => {
+          console.error('[webhook/manus] task_progress comment failed:', err);
+          return null;
+        }
+      );
       if (commentId) {
         updateProgressCommentId(progressTaskId, commentId);
         if (!parentId) {
@@ -463,12 +471,14 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
       // Emit agent activity for the session UI
       // Use 'thought' type for progress - this shows Manus's reasoning in real-time
       if (stored?.agentSessionId) {
-        await createAgentActivity(stored.agentSessionId, {
-          type: 'thought',
-          body: progressMessage,
-        }, accessToken).catch((err) =>
-          console.error('[webhook/manus] task_progress activity failed:', err),
-        );
+        await createAgentActivity(
+          stored.agentSessionId,
+          {
+            type: 'thought',
+            body: progressMessage,
+          },
+          accessToken
+        ).catch((err) => console.error('[webhook/manus] task_progress activity failed:', err));
       }
     } catch (err) {
       console.error('[webhook/manus] task_progress failed:', err);
@@ -589,29 +599,34 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
       // Manus is asking for input — emit an elicitation so Linear keeps the session
       // open for user replies (a "response" would mark the session as complete)
       const question = detail?.message?.trim() || 'Manus needs more information to continue.';
-      await createAgentActivity(sessionId, {
-        type: 'elicitation',
-        body: question,
-      }, accessToken).catch((err) =>
-        console.error('[webhook/manus] Failed to emit ask activity:', err),
-      );
+      await createAgentActivity(
+        sessionId,
+        {
+          type: 'elicitation',
+          body: question,
+        },
+        accessToken
+      ).catch((err) => console.error('[webhook/manus] Failed to emit ask activity:', err));
     } else {
       // Task completed — emit a final response
       const resultBody = detail?.message?.trim() || payload.result || 'Task completed.';
       const taskUrl = detail?.task_url;
       const prUrl = detail?.pull_request_url;
       const attachmentLinks = detail?.attachments?.length
-        ? '\n\n**Attachments:**\n' + detail.attachments.map((a) => `- [${a.file_name}](${a.url})`).join('\n')
+        ? '\n\n**Attachments:**\n' +
+          detail.attachments.map((a) => `- [${a.file_name}](${a.url})`).join('\n')
         : '';
       const prLink = prUrl ? `\n\n**Pull Request:** [${prUrl}](${prUrl})` : '';
       const viewLink = taskUrl ? `\n\n[View full results in Manus](${taskUrl})` : '';
 
-      await createAgentActivity(sessionId, {
-        type: 'response',
-        body: `${resultBody}${attachmentLinks}${prLink}${viewLink}`,
-      }, accessToken).catch((err) =>
-        console.error('[webhook/manus] Failed to emit response activity:', err),
-      );
+      await createAgentActivity(
+        sessionId,
+        {
+          type: 'response',
+          body: `${resultBody}${attachmentLinks}${prLink}${viewLink}`,
+        },
+        accessToken
+      ).catch((err) => console.error('[webhook/manus] Failed to emit response activity:', err));
 
       // Update external URLs to include PR if present
       if (prUrl || taskUrl) {
@@ -623,7 +638,7 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
           externalUrls.push({ label: 'View Pull Request', url: prUrl });
         }
         await updateAgentSession(sessionId, { externalUrls }, accessToken).catch((err) =>
-          console.error('[webhook/manus] Failed to update session external URLs:', err),
+          console.error('[webhook/manus] Failed to update session external URLs:', err)
         );
       }
     }
@@ -635,7 +650,7 @@ router.post('/manus', async (req: RawBodyRequest, res: Response): Promise<void> 
       const completedPlan = completeAllPlanSteps(taskId);
       if (completedPlan && completedPlan.length > 0) {
         await updateAgentSession(sessionId, { plan: completedPlan }, accessToken).catch((err) =>
-          console.error('[webhook/manus] Failed to update completed plan:', err),
+          console.error('[webhook/manus] Failed to update completed plan:', err)
         );
       }
     }

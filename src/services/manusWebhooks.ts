@@ -88,7 +88,9 @@ export async function deleteManusWebhook(webhookId: string): Promise<void> {
     }
   } catch (error) {
     if (isTimeoutError(error)) {
-      console.warn(`[manusWebhooks] Delete webhook timeout: ${handleTimeoutError('deleteManusWebhook', error)}`);
+      console.warn(
+        `[manusWebhooks] Delete webhook timeout: ${handleTimeoutError('deleteManusWebhook', error)}`
+      );
     } else {
       throw error;
     }
@@ -118,7 +120,7 @@ export async function ensureManusWebhook(): Promise<void> {
   if (previousId) {
     console.log('[manusWebhooks] Deleting previous webhook:', previousId);
     await deleteManusWebhook(previousId).catch((err) =>
-      console.warn('[manusWebhooks] Failed to delete previous webhook:', err),
+      console.warn('[manusWebhooks] Failed to delete previous webhook:', err)
     );
   }
 

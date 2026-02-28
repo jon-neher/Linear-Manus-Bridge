@@ -23,11 +23,7 @@ import {
   storePendingTask,
   storeTask,
 } from '../services/taskStore';
-import {
-  PROFILE_OPTIONS,
-  GITHUB_CONNECTOR_ID,
-  CONNECTORS_NONE_REGEX,
-} from '../services/constants';
+import { PROFILE_OPTIONS, GITHUB_CONNECTOR_ID, CONNECTORS_NONE_REGEX } from '../services/constants';
 import {
   createAgentActivity,
   emitAuthElicitation,
@@ -181,7 +177,7 @@ function extractIssueData(payload: LinearIssuePayload): LinearIssueData | undefi
 function isManusAssignment(
   assigneeId?: string,
   assigneeName?: string,
-  assigneeType?: string,
+  assigneeType?: string
 ): boolean {
   const configuredId = process.env.LINEAR_MANUS_ASSIGNEE_ID;
   if (configuredId) return assigneeId === configuredId;
@@ -196,7 +192,7 @@ function isManusAssignment(
 function buildPromptFromDetails(
   title: string,
   description: string | null | undefined,
-  comments: Array<{ body: string; authorName?: string }>,
+  comments: Array<{ body: string; authorName?: string }>
 ): string {
   const lines: string[] = [];
   lines.push(`Title: ${title}`);
@@ -238,18 +234,21 @@ function buildProfileSelectionElicitation() {
     signal: 'select' as const,
     signalMetadata: {
       options: PROFILE_OPTIONS.map((option) => ({
-        label: option === 'manus-1.6' ? 'Manus 1.6' :
-               option === 'manus-1.6-lite' ? 'Manus 1.6 Lite' :
-               option === 'manus-1.6-max' ? 'Manus 1.6 Max' : option,
+        label:
+          option === 'manus-1.6'
+            ? 'Manus 1.6'
+            : option === 'manus-1.6-lite'
+              ? 'Manus 1.6 Lite'
+              : option === 'manus-1.6-max'
+                ? 'Manus 1.6 Max'
+                : option,
         value: option,
       })),
     },
   };
 }
 
-function shouldDisableGithubConnector(
-  comments: Array<{ body: string }>,
-): boolean {
+function shouldDisableGithubConnector(comments: Array<{ body: string }>): boolean {
   return comments.some((comment) => CONNECTORS_NONE_REGEX.test(comment.body));
 }
 
@@ -261,7 +260,8 @@ function parseCandidateRepositories(): Array<{ hostname: string; repositoryFullN
   const raw = process.env.CANDIDATE_REPOSITORIES;
   if (!raw) return [];
 
-  return raw.split(',')
+  return raw
+    .split(',')
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
     .map((repo) => {
@@ -291,7 +291,10 @@ function detectAuthError(errorMessage: string): string | null {
   const lower = errorMessage.toLowerCase();
 
   // Check for GitHub auth-related patterns
-  if (lower.includes('github') && (lower.includes('auth') || lower.includes('unauthorized') || lower.includes('not connected'))) {
+  if (
+    lower.includes('github') &&
+    (lower.includes('auth') || lower.includes('unauthorized') || lower.includes('not connected'))
+  ) {
     return 'GitHub';
   }
   if (lower.includes('repository access') || lower.includes('repo access')) {
@@ -316,7 +319,7 @@ function detectAuthError(errorMessage: string): string | null {
 async function handleAuthError(
   agentSessionId: string | undefined,
   errorMessage: string,
-  accessToken: string,
+  accessToken: string
 ): Promise<boolean> {
   if (!agentSessionId) return false;
 
@@ -342,26 +345,25 @@ async function handleAuthError(
 async function finalizePendingTask(
   pending: PendingTaskRecord,
   selectedProfile: string,
-  accessToken: string,
+  accessToken: string
 ): Promise<{ taskId: string; taskUrl?: string; usedProfile: string; fallbackToLite: boolean }> {
   if (pending.agentSessionId) {
-    await createAgentActivity(pending.agentSessionId, {
-      type: 'action',
-      action: 'Creating Manus task',
-      parameter: selectedProfile,
-    }, accessToken, { ephemeral: true }).catch((err) =>
-      console.error('[linear/webhook] Failed to emit creating action:', err),
-    );
+    await createAgentActivity(
+      pending.agentSessionId,
+      {
+        type: 'action',
+        action: 'Creating Manus task',
+        parameter: selectedProfile,
+      },
+      accessToken,
+      { ephemeral: true }
+    ).catch((err) => console.error('[linear/webhook] Failed to emit creating action:', err));
   }
 
   if (pending.linearTeamId) {
     const inProgressState = process.env.LINEAR_IN_PROGRESS_STATE ?? 'In Progress';
     try {
-      const stateId = await findStateIdByName(
-        pending.linearTeamId,
-        inProgressState,
-        accessToken,
-      );
+      const stateId = await findStateIdByName(pending.linearTeamId, inProgressState, accessToken);
       if (stateId) {
         await updateIssueState(pending.linearIssueId, stateId, accessToken);
       }
@@ -371,7 +373,9 @@ async function finalizePendingTask(
   }
 
   // Fetch repository suggestions if candidates are configured
-  let repositorySuggestions: Array<{ hostname: string; repositoryFullName: string; confidence: number }> | undefined;
+  let repositorySuggestions:
+    | Array<{ hostname: string; repositoryFullName: string; confidence: number }>
+    | undefined;
   const candidates = parseCandidateRepositories();
   if (candidates.length > 0 && pending.agentSessionId) {
     try {
@@ -379,10 +383,13 @@ async function finalizePendingTask(
         pending.linearIssueId,
         pending.agentSessionId,
         candidates,
-        accessToken,
+        accessToken
       );
       repositorySuggestions = suggestions;
-      console.log('[linear/webhook] Repository suggestions:', suggestions.map(s => `${s.repositoryFullName} (${s.confidence})`));
+      console.log(
+        '[linear/webhook] Repository suggestions:',
+        suggestions.map((s) => `${s.repositoryFullName} (${s.confidence})`)
+      );
     } catch (err) {
       console.error('[linear/webhook] Failed to get repository suggestions:', err);
     }
@@ -405,24 +412,30 @@ async function finalizePendingTask(
 
   if (pending.agentSessionId) {
     if (result.taskUrl) {
-      await updateAgentSession(pending.agentSessionId, {
-        externalUrls: [{ label: 'View in Manus', url: result.taskUrl }],
-      }, accessToken).catch((err) =>
-        console.error('[linear/webhook] Failed to update session external URL:', err),
+      await updateAgentSession(
+        pending.agentSessionId,
+        {
+          externalUrls: [{ label: 'View in Manus', url: result.taskUrl }],
+        },
+        accessToken
+      ).catch((err) =>
+        console.error('[linear/webhook] Failed to update session external URL:', err)
       );
     }
 
     const profileNote = result.fallbackToLite
       ? ` (fallback to ${result.usedProfile} due to credits)`
       : '';
-    await createAgentActivity(pending.agentSessionId, {
-      type: 'action',
-      action: 'Created Manus task',
-      parameter: result.taskId,
-      result: `Profile: ${result.usedProfile}${profileNote}`,
-    }, accessToken).catch((err) =>
-      console.error('[linear/webhook] Failed to emit created action:', err),
-    );
+    await createAgentActivity(
+      pending.agentSessionId,
+      {
+        type: 'action',
+        action: 'Created Manus task',
+        parameter: result.taskId,
+        result: `Profile: ${result.usedProfile}${profileNote}`,
+      },
+      accessToken
+    ).catch((err) => console.error('[linear/webhook] Failed to emit created action:', err));
   }
 
   return result;
@@ -542,24 +555,29 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
           parsedProfile: selectedProfile ?? '(no match)',
         });
         if (!selectedProfile) {
-          await createAgentActivity(agentSessionId, {
-            type: 'response',
-            body: PROFILE_GUIDANCE,
-          }, accessToken).catch((err) =>
-            console.error('[linear/webhook] Failed to emit profile guidance:', err),
-          );
+          await createAgentActivity(
+            agentSessionId,
+            {
+              type: 'response',
+              body: PROFILE_GUIDANCE,
+            },
+            accessToken
+          ).catch((err) => console.error('[linear/webhook] Failed to emit profile guidance:', err));
           res.json({ ok: true, awaitingProfile: true, message: 'invalid profile selection' });
           return;
         }
 
         consumePendingTask(pendingSelection.commentId);
-        console.log('[linear/webhook] prompted: consumed pending task, creating Manus task with profile:', selectedProfile);
+        console.log(
+          '[linear/webhook] prompted: consumed pending task, creating Manus task with profile:',
+          selectedProfile
+        );
 
         try {
           const result = await finalizePendingTask(
             pendingSelection.record,
             selectedProfile,
-            accessToken,
+            accessToken
           );
           console.log('[linear/webhook] prompted: Manus task created', {
             taskId: result.taskId,
@@ -575,19 +593,19 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
           // Check if this is an auth error that we can handle
           const handled = await handleAuthError(agentSessionId, message, accessToken);
           if (!handled) {
-            await createAgentActivity(agentSessionId, {
-              type: 'error',
-              body: `Manus task creation failed: ${message}`,
-            }, accessToken).catch((e) =>
-              console.error('[linear/webhook] Failed to emit error activity:', e),
-            );
+            await createAgentActivity(
+              agentSessionId,
+              {
+                type: 'error',
+                body: `Manus task creation failed: ${message}`,
+              },
+              accessToken
+            ).catch((e) => console.error('[linear/webhook] Failed to emit error activity:', e));
             await postComment(
               pendingSelection.record.linearIssueId,
               `Manus task creation failed: ${message}`,
-              accessToken,
-            ).catch((e) =>
-              console.error('[linear/webhook] Failed to post failure comment:', e),
-            );
+              accessToken
+            ).catch((e) => console.error('[linear/webhook] Failed to post failure comment:', e));
           }
           res.status(502).json({ error: message });
         }
@@ -607,12 +625,14 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
           return;
         }
         console.error('[linear/webhook] No Manus task found for session:', agentSessionId);
-        await createAgentActivity(agentSessionId, {
-          type: 'error',
-          body: 'Could not find the associated Manus task to forward your message.',
-        }, accessToken).catch((err) =>
-          console.error('[linear/webhook] Failed to emit error activity:', err),
-        );
+        await createAgentActivity(
+          agentSessionId,
+          {
+            type: 'error',
+            body: 'Could not find the associated Manus task to forward your message.',
+          },
+          accessToken
+        ).catch((err) => console.error('[linear/webhook] Failed to emit error activity:', err));
         res.status(422).json({ error: 'No Manus task found for this session' });
         return;
       }
@@ -622,12 +642,14 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
           await replyToTask(manusTaskId, 'stop');
           console.log('[linear/webhook] prompted: forwarded stop to Manus task:', manusTaskId);
         } catch (err) {
-          await createAgentActivity(agentSessionId, {
-            type: 'error',
-            body: `Failed to forward stop to Manus: ${(err as Error).message}`,
-          }, accessToken).catch((e) =>
-            console.error('[linear/webhook] Failed to emit error activity:', e),
-          );
+          await createAgentActivity(
+            agentSessionId,
+            {
+              type: 'error',
+              body: `Failed to forward stop to Manus: ${(err as Error).message}`,
+            },
+            accessToken
+          ).catch((e) => console.error('[linear/webhook] Failed to emit error activity:', e));
           res.status(502).json({ error: (err as Error).message });
           return;
         }
@@ -637,21 +659,27 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
       }
 
       // Acknowledge the user's message
-      await createAgentActivity(agentSessionId, {
-        type: 'thought',
-        body: 'Forwarding your message to Manus…',
-      }, accessToken).catch((err) => console.error('Failed to emit thought:', err));
+      await createAgentActivity(
+        agentSessionId,
+        {
+          type: 'thought',
+          body: 'Forwarding your message to Manus…',
+        },
+        accessToken
+      ).catch((err) => console.error('Failed to emit thought:', err));
 
       try {
         await replyToTask(manusTaskId, userMessage);
         console.log('[linear/webhook] prompted: replied to Manus task:', manusTaskId);
       } catch (err) {
-        await createAgentActivity(agentSessionId, {
-          type: 'error',
-          body: `Failed to forward message to Manus: ${(err as Error).message}`,
-        }, accessToken).catch((e) =>
-          console.error('[linear/webhook] Failed to emit error activity:', e),
-        );
+        await createAgentActivity(
+          agentSessionId,
+          {
+            type: 'error',
+            body: `Failed to forward message to Manus: ${(err as Error).message}`,
+          },
+          accessToken
+        ).catch((e) => console.error('[linear/webhook] Failed to emit error activity:', e));
         res.status(502).json({ error: (err as Error).message });
         return;
       }
@@ -697,12 +725,14 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
     // Must be non-ephemeral so Linear counts it as an acknowledgment;
     // ephemeral activities may not prevent auto-archive on reassignment.
     if (agentSessionId) {
-      await createAgentActivity(agentSessionId, {
-        type: 'thought',
-        body: 'Received issue — preparing to delegate to Manus…',
-      }, accessToken).catch((err) =>
-        console.error('[linear/webhook] Failed to emit initial thought:', err),
-      );
+      await createAgentActivity(
+        agentSessionId,
+        {
+          type: 'thought',
+          body: 'Received issue — preparing to delegate to Manus…',
+        },
+        accessToken
+      ).catch((err) => console.error('[linear/webhook] Failed to emit initial thought:', err));
     }
 
     let prompt: string;
@@ -714,7 +744,7 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
     if (payload.previousComments && payload.previousComments.length > 0) {
       const totalComments = payload.previousComments.reduce(
         (sum, thread) => sum + (thread.comments?.length ?? 0),
-        0,
+        0
       );
       console.log('[linear/webhook] Previous comments received:', {
         threads: payload.previousComments.length,
@@ -737,16 +767,18 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
         prompt = buildPromptFromDetails(
           issueDetails.title,
           issueDetails.description,
-          issueDetails.comments,
+          issueDetails.comments
         );
       } catch (err) {
         if (agentSessionId) {
-          await createAgentActivity(agentSessionId, {
-            type: 'error',
-            body: `Failed to fetch issue details: ${(err as Error).message}`,
-          }, accessToken).catch((e) =>
-            console.error('[linear/webhook] Failed to emit error activity:', e),
-          );
+          await createAgentActivity(
+            agentSessionId,
+            {
+              type: 'error',
+              body: `Failed to fetch issue details: ${(err as Error).message}`,
+            },
+            accessToken
+          ).catch((e) => console.error('[linear/webhook] Failed to emit error activity:', e));
         }
         res.status(502).json({ error: (err as Error).message });
         return;
@@ -774,9 +806,10 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
       console.error('[linear/webhook] Failed to build attachments:', err);
     }
 
-    const connectors = issueDetails?.comments && shouldDisableGithubConnector(issueDetails.comments)
-      ? []
-      : [GITHUB_CONNECTOR_ID];
+    const connectors =
+      issueDetails?.comments && shouldDisableGithubConnector(issueDetails.comments)
+        ? []
+        : [GITHUB_CONNECTOR_ID];
 
     // Clean up stale task/pending records from previous sessions for this issue
     // so re-assignment after archive starts fresh.
@@ -786,20 +819,22 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
     if (agentSessionId) {
       const { content, signal, signalMetadata } = buildProfileSelectionElicitation();
       try {
-        profileActivityId = await createAgentActivity(
-          agentSessionId,
-          content,
-          accessToken,
-          { signal, signalMetadata },
-        );
+        profileActivityId = await createAgentActivity(agentSessionId, content, accessToken, {
+          signal,
+          signalMetadata,
+        });
       } catch (err) {
         console.error('[linear/webhook] Failed to emit profile selection:', err);
         // Fallback: emit a plain response so the user sees the profile options
-        await createAgentActivity(agentSessionId, {
-          type: 'response',
-          body: PROFILE_GUIDANCE,
-        }, accessToken).catch((e) =>
-          console.error('[linear/webhook] Failed to emit fallback profile guidance:', e),
+        await createAgentActivity(
+          agentSessionId,
+          {
+            type: 'response',
+            body: PROFILE_GUIDANCE,
+          },
+          accessToken
+        ).catch((e) =>
+          console.error('[linear/webhook] Failed to emit fallback profile guidance:', e)
         );
       }
     }
@@ -841,9 +876,7 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
     const parentId = comment?.parentId ?? comment?.parent?.id;
     const issueId = comment?.issueId;
     const pending = parentId ? getPendingTask(parentId) : undefined;
-    const pendingByIssue = !pending && issueId
-      ? findPendingTaskByIssue(issueId)
-      : undefined;
+    const pendingByIssue = !pending && issueId ? findPendingTaskByIssue(issueId) : undefined;
     const pendingRecord = pending ?? pendingByIssue?.record;
     const pendingKey = pending ? parentId! : pendingByIssue?.commentId;
 
@@ -862,9 +895,9 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
           pendingRecord.linearIssueId,
           PROFILE_GUIDANCE,
           accessToken,
-          parentId ?? undefined,
+          parentId ?? undefined
         ).catch((err) =>
-          console.error('[linear/webhook] Failed to post profile guidance comment:', err),
+          console.error('[linear/webhook] Failed to post profile guidance comment:', err)
         );
         res.json({ ok: true, awaitingProfile: true, message: 'invalid profile selection' });
         return;
@@ -872,11 +905,7 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
 
       consumePendingTask(pendingKey);
       try {
-        const result = await finalizePendingTask(
-          pendingRecord,
-          selectedProfile,
-          accessToken,
-        );
+        const result = await finalizePendingTask(pendingRecord, selectedProfile, accessToken);
         res.json({ ok: true, taskId: result.taskId });
       } catch (err) {
         const message = (err as Error).message;
@@ -887,10 +916,8 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
           await postComment(
             pendingRecord.linearIssueId,
             `Manus task creation failed: ${message}`,
-            accessToken,
-          ).catch((e) =>
-            console.error('[linear/webhook] Failed to post failure comment:', e),
-          );
+            accessToken
+          ).catch((e) => console.error('[linear/webhook] Failed to post failure comment:', e));
         }
         res.status(502).json({ error: message });
         return;
@@ -931,7 +958,7 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
           const stateId = await findStateIdByName(
             record.linearTeamId,
             inProgressState,
-            accessToken,
+            accessToken
           );
           if (stateId) {
             await updateIssueState(record.linearIssueId, stateId, accessToken);
@@ -942,12 +969,14 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
       }
 
       if (record.agentSessionId) {
-        await createAgentActivity(record.agentSessionId, {
-          type: 'thought',
-          body: 'Forwarding your reply to Manus…',
-        }, accessToken).catch((err) =>
-          console.error('[linear/webhook] Failed to emit thought activity:', err),
-        );
+        await createAgentActivity(
+          record.agentSessionId,
+          {
+            type: 'thought',
+            body: 'Forwarding your reply to Manus…',
+          },
+          accessToken
+        ).catch((err) => console.error('[linear/webhook] Failed to emit thought activity:', err));
       }
 
       try {
@@ -1031,7 +1060,7 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
   const prompt = buildPromptFromDetails(
     issueDetails.title,
     issueDetails.description,
-    issueDetails.comments,
+    issueDetails.comments
   );
 
   let attachments = [] as Awaited<ReturnType<typeof buildManusAttachments>>;
@@ -1046,11 +1075,7 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
     : [GITHUB_CONNECTOR_ID];
 
   try {
-    await postComment(
-      issueId,
-      PROFILE_GUIDANCE,
-      accessToken,
-    );
+    await postComment(issueId, PROFILE_GUIDANCE, accessToken);
   } catch (err) {
     res.status(502).json({ error: (err as Error).message });
     return;

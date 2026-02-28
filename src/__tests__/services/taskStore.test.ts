@@ -241,7 +241,7 @@ describe('taskStore', () => {
         addPlanStep('task-1', 'Step 2');
         const plan = completeAllPlanSteps('task-1');
         expect(plan).toHaveLength(2);
-        expect(plan?.every(s => s.status === 'completed')).toBe(true);
+        expect(plan?.every((s) => s.status === 'completed')).toBe(true);
       });
 
       it('returns undefined when no plan exists', () => {

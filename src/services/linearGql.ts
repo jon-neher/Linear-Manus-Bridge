@@ -10,17 +10,17 @@ interface GraphQLResponse<T> {
 export async function linearGql<T>(
   query: string,
   variables: Record<string, unknown>,
-  accessToken: string,
+  accessToken: string
 ): Promise<T> {
   try {
     const response = await fetchWithTimeout(LINEAR_GRAPHQL_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({ query, variables }),
-  });
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ query, variables }),
+    });
 
     if (!response.ok) {
       const text = await response.text();
@@ -30,9 +30,7 @@ export async function linearGql<T>(
     const json = (await response.json()) as GraphQLResponse<T>;
 
     if (json.errors?.length) {
-      throw new Error(
-        `Linear GraphQL errors: ${json.errors.map((e) => e.message).join(', ')}`,
-      );
+      throw new Error(`Linear GraphQL errors: ${json.errors.map((e) => e.message).join(', ')}`);
     }
 
     return json.data as T;

@@ -116,7 +116,7 @@ export function updateInstallationTokens(
   workspaceId: string,
   accessToken: string,
   refreshToken: string,
-  expiresAt: number,
+  expiresAt: number
 ): void {
   const s = getStore();
   const record = s.get(workspaceId);

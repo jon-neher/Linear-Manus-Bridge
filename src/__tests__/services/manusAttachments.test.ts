@@ -25,7 +25,8 @@ describe('manusAttachments', () => {
     const attachments = await buildManusAttachments({
       id: 'issue-1',
       title: 'Test',
-      description: 'See https://example.com\n```manus-base64 filename=data.txt mime=text/plain\nZGF0YQ==\n```',
+      description:
+        'See https://example.com\n```manus-base64 filename=data.txt mime=text/plain\nZGF0YQ==\n```',
       teamId: 'team-1',
       comments: [{ id: 'c1', body: 'More info at https://example.org' }],
     });
