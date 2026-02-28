@@ -37,7 +37,7 @@ function mockFetchNotOk(status: number, body: string) {
 
 function expectGqlCall(
   fetchMock: ReturnType<typeof vi.fn>,
-  variablesSubset?: Record<string, unknown>,
+  variablesSubset?: Record<string, unknown>
 ) {
   expect(fetchMock).toHaveBeenCalledWith(
     LINEAR_URL,
@@ -47,7 +47,7 @@ function expectGqlCall(
         Authorization: `Bearer ${TOKEN}`,
         'Content-Type': 'application/json',
       }),
-    }),
+    })
   );
 
   if (variablesSubset) {
@@ -77,7 +77,7 @@ describe('linearAgentSession', () => {
       const result = await createAgentActivity(
         'session-1',
         { type: 'thought', body: 'Thinking…' },
-        TOKEN,
+        TOKEN
       );
       expect(result).toBe('activity-1');
       expectGqlCall(globalThis.fetch, {
@@ -98,7 +98,7 @@ describe('linearAgentSession', () => {
           signal: 'select',
           signalMetadata: { options: [{ label: 'A', value: 'a' }] },
           ephemeral: true,
-        },
+        }
       );
 
       expect(result).toBe('activity-5');
@@ -121,7 +121,7 @@ describe('linearAgentSession', () => {
       const result = await createAgentActivity(
         'session-1',
         { type: 'action', action: 'Created task', parameter: 'task-1', result: 'Done' },
-        TOKEN,
+        TOKEN
       );
       expect(result).toBe('activity-2');
     });
@@ -134,7 +134,7 @@ describe('linearAgentSession', () => {
       const result = await createAgentActivity(
         'session-1',
         { type: 'response', body: 'Task completed' },
-        TOKEN,
+        TOKEN
       );
       expect(result).toBe('activity-3');
     });
@@ -147,7 +147,7 @@ describe('linearAgentSession', () => {
       const result = await createAgentActivity(
         'session-1',
         { type: 'error', body: 'Something went wrong' },
-        TOKEN,
+        TOKEN
       );
       expect(result).toBe('activity-4');
     });
@@ -160,7 +160,7 @@ describe('linearAgentSession', () => {
       const result = await createAgentActivity(
         'session-1',
         { type: 'thought', body: 'test' },
-        TOKEN,
+        TOKEN
       );
       expect(result).toBeNull();
     });
@@ -169,7 +169,7 @@ describe('linearAgentSession', () => {
       globalThis.fetch = mockFetchNotOk(401, 'Unauthorized');
 
       await expect(
-        createAgentActivity('session-1', { type: 'thought', body: 'test' }, TOKEN),
+        createAgentActivity('session-1', { type: 'thought', body: 'test' }, TOKEN)
       ).rejects.toThrow('Linear API error (401): Unauthorized');
     });
 
@@ -177,7 +177,7 @@ describe('linearAgentSession', () => {
       globalThis.fetch = mockFetchErrors([{ message: 'Not authorized' }]);
 
       await expect(
-        createAgentActivity('session-1', { type: 'thought', body: 'test' }, TOKEN),
+        createAgentActivity('session-1', { type: 'thought', body: 'test' }, TOKEN)
       ).rejects.toThrow('Linear GraphQL errors: Not authorized');
     });
   });
@@ -192,8 +192,8 @@ describe('linearAgentSession', () => {
         updateAgentSession(
           'session-1',
           { externalUrls: [{ label: 'View in Manus', url: 'https://manus.ai/task/1' }] },
-          TOKEN,
-        ),
+          TOKEN
+        )
       ).resolves.toBeUndefined();
       expectGqlCall(globalThis.fetch);
     });
@@ -212,8 +212,8 @@ describe('linearAgentSession', () => {
               { content: 'Step 2', status: 'inProgress' },
             ],
           },
-          TOKEN,
-        ),
+          TOKEN
+        )
       ).resolves.toBeUndefined();
     });
   });
@@ -224,12 +224,9 @@ describe('linearAgentSession', () => {
         agentActivityCreate: { success: true, agentActivity: { id: 'activity-auth' } },
       });
 
-      const result = await emitAuthElicitation(
-        'session-1',
-        'https://manus.ai/auth',
-        TOKEN,
-        { providerName: 'GitHub' },
-      );
+      const result = await emitAuthElicitation('session-1', 'https://manus.ai/auth', TOKEN, {
+        providerName: 'GitHub',
+      });
 
       expect(result).toBe('activity-auth');
       expectGqlCall(globalThis.fetch, {
@@ -262,12 +259,10 @@ describe('linearAgentSession', () => {
         agentActivityCreate: { success: true, agentActivity: { id: 'activity-auth3' } },
       });
 
-      await emitAuthElicitation(
-        'session-1',
-        'https://manus.ai/auth',
-        TOKEN,
-        { providerName: 'GitHub', userId: 'user-123' },
-      );
+      await emitAuthElicitation('session-1', 'https://manus.ai/auth', TOKEN, {
+        providerName: 'GitHub',
+        userId: 'user-123',
+      });
 
       expectGqlCall(globalThis.fetch, {
         input: expect.objectContaining({

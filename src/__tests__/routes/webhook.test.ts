@@ -92,7 +92,7 @@ describe('Manus webhook endpoint', () => {
             { label: 'View Pull Request', url: 'https://github.com/owner/repo/pull/456' },
           ]),
         }),
-        'mock-token',
+        'mock-token'
       );
     });
 
@@ -159,7 +159,7 @@ describe('Manus webhook endpoint', () => {
         expect.objectContaining({
           externalUrls: [{ label: 'View in Manus', url: 'https://manus.ai/task/123' }],
         }),
-        'mock-token',
+        'mock-token'
       );
     });
   });
@@ -227,7 +227,7 @@ describe('Manus webhook endpoint', () => {
           type: 'thought',
           body: 'Cloned the repository to explore the codebase',
         }),
-        'mock-token',
+        'mock-token'
       );
     });
   });
@@ -300,7 +300,7 @@ describe('Manus webhook endpoint', () => {
           type: 'response',
           body: expect.stringContaining('github.com/owner/repo/pull/456'),
         }),
-        'mock-token',
+        'mock-token'
       );
     });
   });

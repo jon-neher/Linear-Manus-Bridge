@@ -23,7 +23,7 @@ function parseLimit(value: string | undefined, fallback: number): number {
 const MAX_URLS = parseLimit(process.env.MANUS_ATTACH_MAX_URLS, DEFAULT_MAX_URLS);
 const MAX_BASE64_BYTES = parseLimit(
   process.env.MANUS_ATTACH_MAX_BASE64_BYTES,
-  DEFAULT_MAX_BASE64_BYTES,
+  DEFAULT_MAX_BASE64_BYTES
 );
 
 function parseBase64Blocks(description: string | null | undefined): Base64Block[] {
@@ -105,10 +105,13 @@ function collectUrls(texts: string[]): string[] {
 
         const labels = hostname.split('.');
         if (labels.length < 2) {
-          console.warn('[manusAttachments] Skipping URL with incomplete hostname (needs domain and TLD)', {
-            url: match.slice(0, 50),
-            hostname,
-          });
+          console.warn(
+            '[manusAttachments] Skipping URL with incomplete hostname (needs domain and TLD)',
+            {
+              url: match.slice(0, 50),
+              hostname,
+            }
+          );
           continue;
         }
 
@@ -147,7 +150,7 @@ async function uploadBase64AsFile(block: Base64Block): Promise<ManusAttachment> 
 }
 
 export async function buildManusAttachments(
-  details: IssueDetails | null,
+  details: IssueDetails | null
 ): Promise<ManusAttachment[]> {
   if (!details) return [];
 

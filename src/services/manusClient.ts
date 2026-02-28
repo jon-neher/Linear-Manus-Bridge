@@ -27,7 +27,11 @@ export interface ManusTaskOptions {
   interactiveMode?: boolean;
   attachments?: ManusAttachment[];
   connectors?: string[];
-  repositorySuggestions?: Array<{ hostname: string; repositoryFullName: string; confidence: number }>;
+  repositorySuggestions?: Array<{
+    hostname: string;
+    repositoryFullName: string;
+    confidence: number;
+  }>;
 }
 
 export type ManusAttachment =
@@ -45,9 +49,8 @@ interface ManusCreateResult {
 async function requestCreateTask(
   prompt: string,
   options: ManusTaskOptions,
-  agentProfile: string,
-): Promise<{ ok: true; data: ManusTaskResponse } | { ok: false; status: number; text: string }>
-{
+  agentProfile: string
+): Promise<{ ok: true; data: ManusTaskResponse } | { ok: false; status: number; text: string }> {
   const apiKey = process.env.MANUS_API_KEY;
   if (!apiKey) {
     throw new Error('MANUS_API_KEY is not configured');
@@ -84,7 +87,10 @@ async function requestCreateTask(
 
     if (!response.ok) {
       const text = await response.text();
-      console.error('[manusClient] requestCreateTask failed', { status: response.status, text: text.slice(0, 500) });
+      console.error('[manusClient] requestCreateTask failed', {
+        status: response.status,
+        text: text.slice(0, 500),
+      });
       return { ok: false, status: response.status, text };
     }
 
@@ -111,10 +117,9 @@ function isCreditError(status: number, text: string): boolean {
 
 export async function createTaskWithFallback(
   prompt: string,
-  options: ManusTaskOptions = {},
+  options: ManusTaskOptions = {}
 ): Promise<ManusCreateResult> {
-  const preferredProfile =
-    options.agentProfile ?? process.env.MANUS_AGENT_PROFILE ?? 'manus-1.6';
+  const preferredProfile = options.agentProfile ?? process.env.MANUS_AGENT_PROFILE ?? 'manus-1.6';
 
   const primary = await requestCreateTask(prompt, options, preferredProfile);
   if (primary.ok) {
@@ -150,7 +155,7 @@ export async function createTaskWithFallback(
 
 export async function replyToTask(
   taskId: string,
-  message: string,
+  message: string
 ): Promise<{ taskId: string; taskUrl?: string }> {
   const apiKey = process.env.MANUS_API_KEY;
   if (!apiKey) {
@@ -225,7 +230,7 @@ export async function createFileRecord(filename: string): Promise<ManusFileRespo
 export async function uploadFileToManus(
   uploadUrl: string,
   data: Buffer,
-  contentType?: string,
+  contentType?: string
 ): Promise<void> {
   try {
     const response = await fetchWithTimeout(uploadUrl, {

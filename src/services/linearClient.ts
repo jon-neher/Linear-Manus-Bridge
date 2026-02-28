@@ -4,7 +4,7 @@ export async function postComment(
   issueId: string,
   body: string,
   accessToken: string,
-  parentId?: string,
+  parentId?: string
 ): Promise<string | null> {
   const data = await linearGql<{
     commentCreate: { comment?: { id: string } };
@@ -16,7 +16,7 @@ export async function postComment(
       }
     }`,
     { issueId, body, parentId },
-    accessToken,
+    accessToken
   );
 
   return data.commentCreate.comment?.id ?? null;
@@ -25,7 +25,7 @@ export async function postComment(
 export async function updateComment(
   commentId: string,
   body: string,
-  accessToken: string,
+  accessToken: string
 ): Promise<void> {
   await linearGql<unknown>(
     `mutation CommentUpdate($commentId: String!, $body: String!) {
@@ -35,7 +35,7 @@ export async function updateComment(
       }
     }`,
     { commentId, body },
-    accessToken,
+    accessToken
   );
 }
 
@@ -66,7 +66,7 @@ interface IssueDetailsData {
 export async function getIssueDetails(
   issueId: string,
   accessToken: string,
-  commentLimit = 5,
+  commentLimit = 5
 ): Promise<IssueDetails> {
   const data = await linearGql<IssueDetailsData>(
     `query IssueDetails($issueId: String!, $commentLimit: Int!) {
@@ -85,7 +85,7 @@ export async function getIssueDetails(
       }
     }`,
     { issueId, commentLimit },
-    accessToken,
+    accessToken
   );
 
   if (!data.issue) {
@@ -115,10 +115,7 @@ interface WorkflowStatesData {
   workflowStates: { nodes: WorkflowState[] };
 }
 
-async function getWorkflowStates(
-  teamId: string,
-  accessToken: string,
-): Promise<WorkflowState[]> {
+async function getWorkflowStates(teamId: string, accessToken: string): Promise<WorkflowState[]> {
   const data = await linearGql<WorkflowStatesData>(
     `query WorkflowStates($teamId: ID!) {
       workflowStates(filter: { team: { id: { eq: $teamId } } }) {
@@ -126,7 +123,7 @@ async function getWorkflowStates(
       }
     }`,
     { teamId },
-    accessToken,
+    accessToken
   );
   return data.workflowStates.nodes;
 }
@@ -134,19 +131,17 @@ async function getWorkflowStates(
 export async function findStateIdByName(
   teamId: string,
   stateName: string,
-  accessToken: string,
+  accessToken: string
 ): Promise<string | null> {
   const states = await getWorkflowStates(teamId, accessToken);
-  const match = states.find(
-    (s) => s.name.toLowerCase() === stateName.toLowerCase(),
-  );
+  const match = states.find((s) => s.name.toLowerCase() === stateName.toLowerCase());
   return match?.id ?? null;
 }
 
 export async function updateIssueState(
   issueId: string,
   stateId: string,
-  accessToken: string,
+  accessToken: string
 ): Promise<void> {
   await linearGql<unknown>(
     `mutation IssueUpdate($issueId: String!, $stateId: String!) {
@@ -156,7 +151,7 @@ export async function updateIssueState(
       }
     }`,
     { issueId, stateId },
-    accessToken,
+    accessToken
   );
 }
 
@@ -181,7 +176,7 @@ export async function getRepositorySuggestions(
   issueId: string,
   agentSessionId: string,
   candidateRepositories: Array<{ hostname: string; repositoryFullName: string }>,
-  accessToken: string,
+  accessToken: string
 ): Promise<RepositorySuggestion[]> {
   const data = await linearGql<RepositorySuggestionsData>(
     `query($issueId: String!, $agentSessionId: String!, $candidateRepositories: [IssueRepositoryCandidateInput!]!) {
@@ -198,7 +193,7 @@ export async function getRepositorySuggestions(
       }
     }`,
     { issueId, agentSessionId, candidateRepositories },
-    accessToken,
+    accessToken
   );
 
   return data.issueRepositorySuggestions.suggestions;

@@ -36,7 +36,10 @@ describe('Stats endpoint', () => {
       ['task-2', { linearIssueId: 'issue-2', workspaceId: 'ws-1' }],
     ] as any);
     vi.mocked(taskStore.getAllPendingTasks).mockReturnValue([
-      ['pending-1', { linearIssueId: 'issue-3', workspaceId: 'ws-1', prompt: 'test', attachments: [] }],
+      [
+        'pending-1',
+        { linearIssueId: 'issue-3', workspaceId: 'ws-1', prompt: 'test', attachments: [] },
+      ],
     ] as any);
 
     const res = await request(app).get('/stats');

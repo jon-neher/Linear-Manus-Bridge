@@ -16,7 +16,7 @@ app.use(
     verify: (req: Request & { rawBody?: Buffer }, _res, buf) => {
       req.rawBody = buf;
     },
-  }),
+  })
 );
 
 // Log every incoming request for debugging webhook delivery
@@ -59,7 +59,7 @@ app.listen(PORT, () => {
 
   // Register Manus webhook after server is ready (Manus sends a verification ping)
   ensureManusWebhook().catch((err) =>
-    console.error('[startup] Manus webhook registration failed:', err),
+    console.error('[startup] Manus webhook registration failed:', err)
   );
 });
 

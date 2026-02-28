@@ -9,10 +9,7 @@ import { REQUEST_TIMEOUT_MS } from './constants';
  * @returns Promise<Response>
  * @throws AbortError if the request times out
  */
-export async function fetchWithTimeout(
-  url: string | URL,
-  init?: RequestInit,
-): Promise<Response> {
+export async function fetchWithTimeout(url: string | URL, init?: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
     controller.abort();

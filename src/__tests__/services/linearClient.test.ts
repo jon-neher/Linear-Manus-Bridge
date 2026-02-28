@@ -40,7 +40,7 @@ function mockFetchNotOk(status: number, body: string) {
 
 function expectGqlCall(
   fetchMock: ReturnType<typeof vi.fn>,
-  variablesSubset?: Record<string, unknown>,
+  variablesSubset?: Record<string, unknown>
 ) {
   expect(fetchMock).toHaveBeenCalledWith(
     LINEAR_URL,
@@ -50,7 +50,7 @@ function expectGqlCall(
         Authorization: `Bearer ${TOKEN}`,
         'Content-Type': 'application/json',
       }),
-    }),
+    })
   );
 
   if (variablesSubset) {
@@ -108,9 +108,7 @@ describe('linearClient', () => {
         commentUpdate: { success: true, comment: { id: 'comment-1' } },
       });
 
-      await expect(
-        updateComment('comment-1', 'updated body', TOKEN),
-      ).resolves.toBeUndefined();
+      await expect(updateComment('comment-1', 'updated body', TOKEN)).resolves.toBeUndefined();
       expectGqlCall(globalThis.fetch, { commentId: 'comment-1', body: 'updated body' });
     });
   });
@@ -150,7 +148,7 @@ describe('linearClient', () => {
       globalThis.fetch = mockFetchJson({ issue: null });
 
       await expect(getIssueDetails('missing-id', TOKEN)).rejects.toThrow(
-        'Issue not found: missing-id',
+        'Issue not found: missing-id'
       );
     });
   });
@@ -174,9 +172,7 @@ describe('linearClient', () => {
     it('returns null when no state matches', async () => {
       globalThis.fetch = mockFetchJson({
         workflowStates: {
-          nodes: [
-            { id: 'state-1', name: 'In Progress', type: 'started' },
-          ],
+          nodes: [{ id: 'state-1', name: 'In Progress', type: 'started' }],
         },
       });
 
@@ -191,9 +187,7 @@ describe('linearClient', () => {
         issueUpdate: { success: true, issue: { id: 'issue-1', state: { name: 'Done' } } },
       });
 
-      await expect(
-        updateIssueState('issue-1', 'state-2', TOKEN),
-      ).resolves.toBeUndefined();
+      await expect(updateIssueState('issue-1', 'state-2', TOKEN)).resolves.toBeUndefined();
       expectGqlCall(globalThis.fetch, { issueId: 'issue-1', stateId: 'state-2' });
     });
   });
@@ -203,7 +197,7 @@ describe('linearClient', () => {
       globalThis.fetch = mockFetchNotOk(500, 'Internal Server Error');
 
       await expect(postComment('issue-1', 'hello', TOKEN)).rejects.toThrow(
-        'Linear API error (500): Internal Server Error',
+        'Linear API error (500): Internal Server Error'
       );
     });
 
@@ -214,7 +208,7 @@ describe('linearClient', () => {
       ]);
 
       await expect(postComment('issue-1', 'hello', TOKEN)).rejects.toThrow(
-        'Linear GraphQL errors: Field not found, Unauthorized',
+        'Linear GraphQL errors: Field not found, Unauthorized'
       );
     });
   });
@@ -272,7 +266,7 @@ describe('linearClient', () => {
         'issue-1',
         'session-1',
         [{ hostname: 'github.com', repositoryFullName: 'owner/repo' }],
-        TOKEN,
+        TOKEN
       );
 
       const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);

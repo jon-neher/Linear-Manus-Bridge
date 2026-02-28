@@ -38,7 +38,7 @@ async function getManusPublicKey(): Promise<string> {
 
     if (!response.ok) {
       throw new Error(
-        `Failed to fetch Manus public key (${response.status}): ${await response.text()}`,
+        `Failed to fetch Manus public key (${response.status}): ${await response.text()}`
       );
     }
 
@@ -75,7 +75,7 @@ export async function verifyManusWebhookSignature(
   rawBody: Buffer,
   signature: string,
   timestamp: string,
-  webhookUrl: string,
+  webhookUrl: string
 ): Promise<boolean> {
   // 1. Validate timestamp freshness to prevent replay attacks.
   const requestTime = parseInt(timestamp, 10);
@@ -86,7 +86,7 @@ export async function verifyManusWebhookSignature(
   const ageSeconds = Math.abs(Math.floor(Date.now() / 1000) - requestTime);
   if (ageSeconds > MAX_WEBHOOK_TIMESTAMP_AGE_SECONDS) {
     console.warn(
-      `[ManusVerifier] Webhook timestamp is ${ageSeconds}s old (max ${MAX_WEBHOOK_TIMESTAMP_AGE_SECONDS}s)`,
+      `[ManusVerifier] Webhook timestamp is ${ageSeconds}s old (max ${MAX_WEBHOOK_TIMESTAMP_AGE_SECONDS}s)`
     );
     return false;
   }

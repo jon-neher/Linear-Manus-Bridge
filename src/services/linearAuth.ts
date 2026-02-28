@@ -10,7 +10,10 @@ import { fetchWithTimeout } from './fetchWithTimeout';
 import { isTimeoutError, handleTimeoutError } from './timeoutErrorHandler';
 
 export class TokenRevokedError extends Error {
-  constructor(public readonly workspaceId: string, message?: string) {
+  constructor(
+    public readonly workspaceId: string,
+    message?: string
+  ) {
     super(message ?? `Token revoked for workspace: ${workspaceId}`);
     this.name = 'TokenRevokedError';
   }
@@ -28,7 +31,7 @@ interface LinearTokenResponse {
  */
 async function refreshAccessToken(
   workspaceId: string,
-  refreshToken: string,
+  refreshToken: string
 ): Promise<LinearTokenResponse> {
   const params = new URLSearchParams({
     grant_type: 'refresh_token',
@@ -52,7 +55,7 @@ async function refreshAccessToken(
         markInstallationInactive(workspaceId);
         throw new TokenRevokedError(
           workspaceId,
-          `Refresh token expired or revoked for workspace ${workspaceId}: ${text}`,
+          `Refresh token expired or revoked for workspace ${workspaceId}: ${text}`
         );
       }
 
@@ -78,7 +81,10 @@ const inflightRefreshes = new Map<string, Promise<string>>();
 export async function getValidToken(workspaceId: string): Promise<string> {
   const record = getInstallationByWorkspace(workspaceId);
   if (!record) {
-    throw new TokenRevokedError(workspaceId, `No installation record found for workspace: ${workspaceId}`);
+    throw new TokenRevokedError(
+      workspaceId,
+      `No installation record found for workspace: ${workspaceId}`
+    );
   }
 
   if (!record.active) {
@@ -104,7 +110,7 @@ export async function getValidToken(workspaceId: string): Promise<string> {
         workspaceId,
         tokenData.access_token,
         tokenData.refresh_token,
-        Date.now() + tokenData.expires_in * 1000,
+        Date.now() + tokenData.expires_in * 1000
       );
 
       return tokenData.access_token;
@@ -134,7 +140,9 @@ export function handleApiRevocation(workspaceId: string): void {
 /**
  * Look up an installation by app installation ID (used for webhook routing).
  */
-export function resolveWorkspaceFromInstallation(appInstallationId: string): InstallationRecord | undefined {
+export function resolveWorkspaceFromInstallation(
+  appInstallationId: string
+): InstallationRecord | undefined {
   return getInstallationByAppId(appInstallationId);
 }
 
@@ -144,7 +152,7 @@ export function resolveWorkspaceFromInstallation(appInstallationId: string): Ins
  */
 export async function linearApiRequest<T = unknown>(
   workspaceId: string,
-  body: { query: string; variables?: Record<string, unknown> },
+  body: { query: string; variables?: Record<string, unknown> }
 ): Promise<T> {
   try {
     let accessToken = await getValidToken(workspaceId);
@@ -182,7 +190,7 @@ export async function linearApiRequest<T = unknown>(
         markInstallationInactive(workspaceId);
         throw new TokenRevokedError(
           workspaceId,
-          `Persistent 401 after token refresh for workspace ${workspaceId}`,
+          `Persistent 401 after token refresh for workspace ${workspaceId}`
         );
       }
     }

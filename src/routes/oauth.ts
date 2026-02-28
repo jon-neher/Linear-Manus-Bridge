@@ -1,6 +1,10 @@
 import { randomBytes } from 'crypto';
 import { Router, Request, Response } from 'express';
-import { saveInstallation, getInstallationByWorkspace, getAllActiveInstallations } from '../services/installationStore';
+import {
+  saveInstallation,
+  getInstallationByWorkspace,
+  getAllActiveInstallations,
+} from '../services/installationStore';
 import { storeState, consumeState } from '../services/oauthStateStore';
 import {
   LINEAR_AUTHORIZE_URL,
@@ -104,7 +108,7 @@ router.get('/callback', async (req: Request, res: Response): Promise<void> => {
       throw new Error(`Token exchange failed (${tokenResponse.status}): ${text}`);
     }
 
-    tokenData = await tokenResponse.json() as LinearTokenResponse;
+    tokenData = (await tokenResponse.json()) as LinearTokenResponse;
   } catch (err) {
     if (isTimeoutError(err)) {
       res.status(504).json({ error: handleTimeoutError('oauth/callback token exchange', err) });
@@ -137,7 +141,9 @@ router.get('/callback', async (req: Request, res: Response): Promise<void> => {
       throw new Error(`GraphQL query failed (${gqlResponse.status}): ${text}`);
     }
 
-    const gqlData = await gqlResponse.json() as LinearGraphQLResponse<LinearViewerData & LinearOrganizationData>;
+    const gqlData = (await gqlResponse.json()) as LinearGraphQLResponse<
+      LinearViewerData & LinearOrganizationData
+    >;
 
     installationId = gqlData?.data?.viewer?.id ?? '';
     workspaceId = gqlData?.data?.organization?.id ?? '';
