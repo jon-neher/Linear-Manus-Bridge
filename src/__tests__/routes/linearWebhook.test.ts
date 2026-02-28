@@ -599,10 +599,6 @@ describe('Linear webhook endpoint', () => {
     const { replyToTask } = await import('../../services/manusClient');
     const { findTaskBySession, findPendingTaskBySession } =
       await import('../../services/taskStore');
-    const { getValidToken } = await import('../../services/linearAuth');
-    const { replyToTask } = await import('../../services/manusClient');
-    const { findTaskBySession, findPendingTaskBySession } =
-      await import('../../services/taskStore');
 
     (getValidToken as ReturnType<typeof vi.fn>).mockResolvedValue('mock-token');
     (findTaskBySession as ReturnType<typeof vi.fn>).mockReturnValue('manus-123');
