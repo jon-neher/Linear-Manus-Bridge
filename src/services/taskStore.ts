@@ -238,6 +238,14 @@ function loadPlans(): void {
 // Load plans on startup
 loadPlans();
 
+// Periodic cleanup of orphaned plans every 5 minutes
+setInterval(
+  () => {
+    cleanupOrphanedPlans();
+  },
+  5 * 60 * 1000
+);
+
 /**
  * Get the current plan for a task.
  */
