@@ -12,6 +12,16 @@ const log = createLogger('http');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Global error handlers to prevent crashes
+process.on('unhandledRejection', (reason, promise) => {
+  log.error({ reason, promise }, 'Unhandled Promise Rejection');
+});
+
+process.on('uncaughtException', (err, origin) => {
+  log.error({ err, origin }, 'Uncaught Exception');
+  process.exit(1);
+});
+
 // Capture raw body for webhook signature verification before JSON parsing.
 app.use(
   express.json({
