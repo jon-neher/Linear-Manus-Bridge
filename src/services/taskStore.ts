@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'fs';
 import { join } from 'path';
 import type { ManusAttachment } from './manusClient';
 import { createLogger } from './logger';
@@ -49,6 +49,9 @@ const PLAN_STORE_PATH = join(getDataDir(), '.plans.json');
 const taskStore = new Map<string, TaskRecord>();
 const pendingTaskStore = new Map<string, PendingTaskRecord>();
 
+// Simple mutex to prevent concurrent writes to the same file
+const writeLocks = new Map<string, boolean>();
+
 function loadMapFromFile<T>(path: string): Map<string, T> {
   if (!existsSync(path)) return new Map();
   try {
@@ -61,11 +64,39 @@ function loadMapFromFile<T>(path: string): Map<string, T> {
   }
 }
 
-function persistMap<T>(map: Map<string, T>, path: string): void {
+/**
+ * Atomically write data to a file by writing to a temp file first, then renaming.
+ * This prevents corruption from partial writes if the process crashes mid-write.
+ */
+function atomicWrite(path: string, data: string): void {
+  const tmpPath = `${path}.tmp`;
   try {
-    writeFileSync(path, JSON.stringify(Array.from(map.entries())), 'utf8');
+    writeFileSync(tmpPath, data, 'utf8');
+    renameSync(tmpPath, path);
   } catch (err) {
-    log.error({ path, err }, 'Failed to persist file');
+    log.error({ path, err }, 'Failed to atomically write file');
+    // Clean up temp file if it exists
+    try {
+      if (existsSync(tmpPath)) {
+        writeFileSync(tmpPath, '', 'utf8'); // Truncate to mark as failed
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+}
+
+function persistMap<T>(map: Map<string, T>, path: string): void {
+  // Prevent concurrent writes to the same file
+  if (writeLocks.get(path)) {
+    log.warn({ path }, 'Skipping write - already in progress');
+    return;
+  }
+  writeLocks.set(path, true);
+  try {
+    atomicWrite(path, JSON.stringify(Array.from(map.entries())));
+  } finally {
+    writeLocks.delete(path);
   }
 }
 
@@ -214,10 +245,15 @@ export function consumePendingTask(commentId: string): PendingTaskRecord | undef
 // ─── Plan management ────────────────────────────────────────────────────────
 
 function persistPlans(): void {
+  if (writeLocks.get(PLAN_STORE_PATH)) {
+    log.warn({ path: PLAN_STORE_PATH }, 'Skipping plan write - already in progress');
+    return;
+  }
+  writeLocks.set(PLAN_STORE_PATH, true);
   try {
-    writeFileSync(PLAN_STORE_PATH, JSON.stringify(Array.from(planStore.entries())), 'utf8');
-  } catch (err) {
-    log.error({ err }, 'Failed to persist plans');
+    atomicWrite(PLAN_STORE_PATH, JSON.stringify(Array.from(planStore.entries())));
+  } finally {
+    writeLocks.delete(PLAN_STORE_PATH);
   }
 }
 
