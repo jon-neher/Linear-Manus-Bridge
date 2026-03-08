@@ -68,6 +68,9 @@ describe('Linear webhook endpoint', () => {
       title: 'Test',
       description: 'Desc',
       teamId: 'team-1',
+      teamName: null,
+      projectName: null,
+      projectIdentifier: null,
       comments: [],
     });
     (postComment as ReturnType<typeof vi.fn>).mockResolvedValue('comment-1');
@@ -122,6 +125,9 @@ describe('Linear webhook endpoint', () => {
       title: 'Test',
       description: 'Desc',
       teamId: 'team-1',
+      teamName: null,
+      projectName: null,
+      projectIdentifier: null,
       comments: [],
     });
     (postComment as ReturnType<typeof vi.fn>).mockResolvedValue('comment-1');
@@ -193,6 +199,9 @@ describe('Linear webhook endpoint', () => {
       title: 'Test',
       description: 'Desc',
       teamId: 'team-1',
+      teamName: null,
+      projectName: null,
+      projectIdentifier: null,
       comments: [{ body: '/manus connectors=none' }],
     });
     (postComment as ReturnType<typeof vi.fn>).mockResolvedValue('comment-1');
@@ -742,6 +751,10 @@ describe('Auth signal handling', () => {
         id: 'issue-1',
         title: 'Test',
         description: '',
+        teamId: null,
+        teamName: null,
+        projectName: null,
+        projectIdentifier: null,
         comments: [],
       }),
       findStateIdByName: vi.fn(),
@@ -819,6 +832,10 @@ describe('Auth signal handling', () => {
         id: 'issue-1',
         title: 'Test',
         description: '',
+        teamId: null,
+        teamName: null,
+        projectName: null,
+        projectIdentifier: null,
         comments: [],
       }),
       findStateIdByName: vi.fn(),
