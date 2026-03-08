@@ -189,27 +189,73 @@ function isManusAssignment(
   return false;
 }
 
+function formatDate(isoString?: string): string {
+  if (!isoString) return '';
+  const date = new Date(isoString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return 'today';
+  if (diffDays === 1) return 'yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+
+  return date.toLocaleDateString();
+}
+
 function buildPromptFromDetails(
   title: string,
   description: string | null | undefined,
-  comments: Array<{ body: string; authorName?: string }>
+  comments: Array<{ body: string; authorName?: string; createdAt?: string }>,
+  teamName?: string | null,
+  projectName?: string | null,
+  projectIdentifier?: string | null
 ): string {
   const lines: string[] = [];
-  lines.push(`Title: ${title}`);
+
+  lines.push(`I need your help with this issue: ${title}`);
+
+  if (projectIdentifier) {
+    lines.push(`Issue ID: ${projectIdentifier}`);
+    lines.push('');
+  }
+
+  if (teamName) {
+    lines.push(`Team: ${teamName}`);
+  }
+
+  if (projectName) {
+    lines.push(`Project: ${projectName}`);
+  }
+
   lines.push('');
-  lines.push('Description:');
-  lines.push(description?.trim() ? description : '(none)');
+  lines.push('Here are the details:');
   lines.push('');
-  lines.push('Comments:');
-  if (!comments.length) {
-    lines.push('(none)');
+
+  if (description?.trim()) {
+    lines.push(description.trim());
   } else {
+    lines.push('(No description provided)');
+  }
+
+  if (comments.length > 0) {
+    lines.push('');
+    lines.push('Additional context from comments:');
     for (const comment of comments) {
-      const body = comment.body?.trim() || '(empty comment)';
-      const prefix = comment.authorName ? `${comment.authorName}: ` : '';
-      lines.push(`- ${prefix}${body}`);
+      const body = comment.body?.trim();
+      if (!body) continue;
+
+      const name = comment.authorName || 'Someone';
+      const time = comment.createdAt ? ` (${formatDate(comment.createdAt)})` : '';
+      lines.push(`- ${name}${time}:`);
+      lines.push(`  ${body}`);
     }
   }
+
+  lines.push('');
+  lines.push('Please help me with this issue!');
+
   return lines.join('\n');
 }
 
@@ -767,7 +813,10 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
         prompt = buildPromptFromDetails(
           issueDetails.title,
           issueDetails.description,
-          issueDetails.comments
+          issueDetails.comments,
+          issueDetails.teamName,
+          issueDetails.projectName,
+          issueDetails.projectIdentifier
         );
       } catch (err) {
         if (agentSessionId) {
@@ -1060,7 +1109,10 @@ router.post('/', async (req: RawBodyRequest, res: Response): Promise<void> => {
   const prompt = buildPromptFromDetails(
     issueDetails.title,
     issueDetails.description,
-    issueDetails.comments
+    issueDetails.comments,
+    issueDetails.teamName,
+    issueDetails.projectName,
+    issueDetails.projectIdentifier
   );
 
   let attachments = [] as Awaited<ReturnType<typeof buildManusAttachments>>;

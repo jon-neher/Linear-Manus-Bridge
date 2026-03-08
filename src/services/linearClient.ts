@@ -43,6 +43,7 @@ export interface IssueCommentSummary {
   id: string;
   body: string;
   authorName?: string;
+  createdAt?: string;
 }
 
 export interface IssueDetails {
@@ -50,6 +51,9 @@ export interface IssueDetails {
   title: string;
   description?: string | null;
   teamId?: string | null;
+  teamName?: string | null;
+  projectName?: string | null;
+  projectIdentifier?: string | null;
   comments: IssueCommentSummary[];
 }
 
@@ -58,8 +62,16 @@ interface IssueDetailsData {
     id: string;
     title: string;
     description?: string | null;
-    team?: { id: string } | null;
-    comments: { nodes: Array<{ id: string; body: string; user?: { name?: string } | null }> };
+    team?: { id: string; name: string } | null;
+    project?: { id: string; name: string; identifier: string } | null;
+    comments: {
+      nodes: Array<{
+        id: string;
+        body: string;
+        user?: { name?: string } | null;
+        createdAt?: string;
+      }>;
+    };
   } | null;
 }
 
@@ -74,12 +86,14 @@ export async function getIssueDetails(
         id
         title
         description
-        team { id }
+        team { id name }
+        project { id name identifier }
         comments(last: $commentLimit) {
           nodes {
             id
             body
             user { name }
+            createdAt
           }
         }
       }
@@ -97,10 +111,14 @@ export async function getIssueDetails(
     title: data.issue.title,
     description: data.issue.description ?? null,
     teamId: data.issue.team?.id ?? null,
+    teamName: data.issue.team?.name ?? null,
+    projectName: data.issue.project?.name ?? null,
+    projectIdentifier: data.issue.project?.identifier ?? null,
     comments: data.issue.comments.nodes.map((node) => ({
       id: node.id,
       body: node.body,
       authorName: node.user?.name,
+      createdAt: node.createdAt,
     })),
   };
 }

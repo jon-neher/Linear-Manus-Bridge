@@ -120,11 +120,17 @@ describe('linearClient', () => {
           id: 'issue-1',
           title: 'Test Issue',
           description: 'A description',
-          team: { id: 'team-1' },
+          team: { id: 'team-1', name: 'Test Team' },
+          project: null,
           comments: {
             nodes: [
-              { id: 'c1', body: 'comment body', user: { name: 'Alice' } },
-              { id: 'c2', body: 'another comment', user: null },
+              {
+                id: 'c1',
+                body: 'comment body',
+                user: { name: 'Alice' },
+                createdAt: '2024-01-15T10:30:00Z',
+              },
+              { id: 'c2', body: 'another comment', user: null, createdAt: '2024-01-14T10:30:00Z' },
             ],
           },
         },
@@ -136,9 +142,22 @@ describe('linearClient', () => {
         title: 'Test Issue',
         description: 'A description',
         teamId: 'team-1',
+        teamName: 'Test Team',
+        projectName: null,
+        projectIdentifier: null,
         comments: [
-          { id: 'c1', body: 'comment body', authorName: 'Alice' },
-          { id: 'c2', body: 'another comment', authorName: undefined },
+          {
+            id: 'c1',
+            body: 'comment body',
+            authorName: 'Alice',
+            createdAt: '2024-01-15T10:30:00Z',
+          },
+          {
+            id: 'c2',
+            body: 'another comment',
+            authorName: undefined,
+            createdAt: '2024-01-14T10:30:00Z',
+          },
         ],
       });
       expectGqlCall(globalThis.fetch, { issueId: 'issue-1', commentLimit: 10 });
