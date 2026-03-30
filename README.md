@@ -31,9 +31,11 @@ A middleware service that bridges [Linear](https://linear.app) issues with [Manu
 
 ### 3. Deployment
 
+#### Option A: Node.js (local/server)
+
 1.  Clone this repository.
 2.  Copy `env.example` to `.env` and fill in the required variables (see [Environment Variables](#-environment-variables)).
-3.  Ensure `DATA_DIR` points to a persistent volume or directory that survives restarts (e.g., Docker volume, cloud storage mount).
+3.  Ensure `DATA_DIR` points to a persistent volume or directory that survives restarts.
 4.  Install dependencies and build:
     ```bash
     npm install
@@ -43,6 +45,28 @@ A middleware service that bridges [Linear](https://linear.app) issues with [Manu
     ```bash
     npm start
     ```
+
+#### Option B: Docker
+
+```bash
+# Build the image
+docker build -t linear-manus-bridge .
+
+# Run with environment variables
+docker run -d -p 3000:3000 \
+  -e LINEAR_CLIENT_ID=your-client-id \
+  -e LINEAR_CLIENT_SECRET=your-client-secret \
+  -e LINEAR_REDIRECT_URI=https://your-domain/oauth/callback \
+  -e LINEAR_WEBHOOK_SECRET=your-webhook-secret \
+  -e MANUS_API_KEY=your-manus-api-key \
+  -e INSTALLATION_STORE_SECRET=your-encryption-secret \
+  -e SERVICE_BASE_URL=https://your-domain \
+  -e DATA_DIR=/data \
+  -v /path/to/data:/data \
+  linear-manus-bridge
+```
+
+> **Tip**: On Linux, you may need to add `--user 1000` if you encounter permission issues with the data directory.
 
 ### 4. Workflow Setup (Optional)
 
@@ -103,11 +127,13 @@ The bridge handles context intelligently:
 
 - **Auto-URLs**: Links in descriptions/comments are passed to Manus as URL attachments.
 - **Base64 Files**: Embed files directly in Linear using this block:
+
   ````markdown
   ```manus-base64 filename=report.pdf mime=application/pdf
   <base64_content>
   ```
   ````
+
   ```
 
   ```
